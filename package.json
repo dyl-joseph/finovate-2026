@@ -1,0 +1,10 @@
+{
+  "name": "finovate-2026",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deepgram:keyterms": "node scripts/deepgram-keyterms.mjs",
+    "test": "node --test"
+  }
+}
