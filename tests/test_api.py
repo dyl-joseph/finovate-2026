@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -114,6 +115,21 @@ class ApiContractTests(unittest.TestCase):
     def test_production_requires_nondefault_secret(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be set"):
             ApiSettings(environment="production")
+
+    def test_reads_postgres_url_from_environment(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DATABASE_URL": "postgresql://example.test/finovate",
+                "DATABASE_PATH": "ignored.db",
+            },
+            clear=True,
+        ):
+            settings = ApiSettings.from_env()
+
+        self.assertEqual(
+            settings.database_url, "postgresql://example.test/finovate"
+        )
 
     def test_mutations_require_bearer_authentication(self) -> None:
         with TestClient(self.make_app()) as client:

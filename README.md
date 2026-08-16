@@ -61,8 +61,8 @@ print(json.dumps(result.to_dict(), indent=2))
 
 Reuse the same `ScamAssessmentPipeline` instance to retain encounter memory in
 a single process. For local persistence, inject `EncounterMemory` with a
-`SQLiteEncounterRepository`. The repository interface is the boundary for the
-planned Supabase/Postgres adapter.
+`SQLiteEncounterRepository`. The HTTP service uses Supabase/Postgres whenever
+`DATABASE_URL` is set and falls back to SQLite otherwise.
 
 ## Tests
 
@@ -98,6 +98,20 @@ uvicorn finovate_pipeline.api:app --host 0.0.0.0 --port 8000
 ```
 
 Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
+
+### Supabase and Render
+
+The Supabase schema is versioned in
+`supabase/migrations/20260816100000_post_transcript_pipeline.sql`. The API also
+creates the same tables idempotently during startup, which makes a fresh Render
+deployment self-initializing when its database user has DDL permission.
+
+Create a Render Blueprint from `render.yaml`, then provide `DATABASE_URL` using
+the Supabase transaction-pooler connection string. Keep SSL enabled (the
+Supabase URL normally includes `sslmode=require`). Render generates
+`TRANSCRIPT_INGEST_API_KEY`; copy that secret into the upstream transcript
+service. Set `CORS_ORIGINS` to a comma-separated list of deployed frontend
+origins, or leave it empty when browser clients should not call the API.
 
 ### Endpoints
 

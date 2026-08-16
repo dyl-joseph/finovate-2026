@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: finovate-post-transcript
+    runtime: python
+    plan: free
+    buildCommand: pip install .
+    startCommand: uvicorn finovate_pipeline.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: TRANSCRIPT_INGEST_API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false

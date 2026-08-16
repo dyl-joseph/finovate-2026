@@ -31,6 +31,7 @@ from .pipeline import ScamAssessmentPipeline
 @dataclass(frozen=True, slots=True)
 class ApiSettings:
     database_path: str = ":memory:"
+    database_url: str | None = None
     ingest_api_key: str = "dev-only-change-me"
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
     environment: str = "development"
@@ -55,6 +56,7 @@ class ApiSettings:
         )
         return cls(
             database_path=os.getenv("DATABASE_PATH", ":memory:"),
+            database_url=os.getenv("DATABASE_URL") or None,
             ingest_api_key=os.getenv(
                 "TRANSCRIPT_INGEST_API_KEY", "dev-only-change-me"
             ),
@@ -150,10 +152,25 @@ class HealthResponse(ApiModel):
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     resolved_settings = settings or ApiSettings.from_env()
-    conversation_repository = SQLiteConversationRepository(
-        resolved_settings.database_path
-    )
-    encounter_repository = SQLiteEncounterRepository(resolved_settings.database_path)
+    if resolved_settings.database_url:
+        from .postgres_storage import (
+            PostgresConversationRepository,
+            PostgresEncounterRepository,
+        )
+
+        conversation_repository = PostgresConversationRepository(
+            resolved_settings.database_url
+        )
+        encounter_repository = PostgresEncounterRepository(
+            resolved_settings.database_url
+        )
+    else:
+        conversation_repository = SQLiteConversationRepository(
+            resolved_settings.database_path
+        )
+        encounter_repository = SQLiteEncounterRepository(
+            resolved_settings.database_path
+        )
     pipeline = ScamAssessmentPipeline(
         encounter_memory=EncounterMemory(encounter_repository)
     )
