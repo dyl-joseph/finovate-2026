@@ -1,9 +1,10 @@
 import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
+import { buildMemoryHighlights } from "/assessment-memory.mjs";
 
 const elements = Object.fromEntries([
   "actions-panel", "active-view", "checker-card", "error", "live-assessment", "live-assessment-detail",
   "live-assessment-label", "live-assessment-verdict", "ready-view", "recommendations",
-  "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
+  "memory-highlights", "memory-panel", "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
   "start", "state-detail", "state-symbol", "state-title", "stop", "timer",
   "warning-panel", "warning-signs",
 ].map((id) => [id.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), document.querySelector(`#${id}`)]));
@@ -159,6 +160,24 @@ function renderAssessment(assessment) {
     elements.warningSigns.append(item);
   }
   elements.warningPanel.hidden = warningLabels.length === 0;
+
+  const memoryHighlights = buildMemoryHighlights(assessment.memory_findings ?? []);
+  elements.memoryHighlights.replaceChildren();
+  for (const highlight of memoryHighlights) {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = highlight.title;
+    const detail = document.createElement("span");
+    detail.textContent = highlight.detail;
+    item.append(title, detail);
+    if (highlight.meta) {
+      const meta = document.createElement("small");
+      meta.textContent = highlight.meta;
+      item.append(meta);
+    }
+    elements.memoryHighlights.append(item);
+  }
+  elements.memoryPanel.hidden = memoryHighlights.length === 0;
   elements.result.hidden = false;
   elements.checkerCard.hidden = true;
   elements.activeView.hidden = true;

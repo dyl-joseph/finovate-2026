@@ -73,6 +73,16 @@ h3 { margin-bottom: 12px; font-size: 1rem; }
 .warning-panel { margin-top: 15px; padding: 15px; border-radius: 14px; background: #eef9f6; }
 .warning-signs { margin: 0; padding-left: 20px; color: #51716e; font-size: .86rem; }
 .warning-signs li { margin: 5px 0; line-height: 1.35; }
+.memory-panel { margin-top: 15px; padding: 15px; border: 1px solid #f4ca82; border-radius: 14px; background: #fff8e9; }
+.memory-panel-heading { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.memory-panel-heading h3 { margin-bottom: 3px; color: #76520b; }
+.memory-panel-heading p { margin: 0; color: #806b40; font-size: .75rem; line-height: 1.35; }
+.memory-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; background: #ffc96a; color: #76520b; font-weight: 900; }
+.memory-highlights { margin: 13px 0 0; padding: 0; list-style: none; display: grid; gap: 11px; }
+.memory-highlights li { display: grid; gap: 3px; color: #4f4a3c; font-size: .86rem; line-height: 1.35; }
+.memory-highlights strong { color: #76520b; font-size: .9rem; }
+.memory-highlights span { color: #625b49; }
+.memory-highlights small { color: #806b40; font-size: .72rem; font-weight: 800; }
 .secondary-action { margin-top: 19px; border: 2px solid #155758; background: transparent; color: #155758; }
 .help-card { grid-column: 1; display: grid; grid-template-columns: 34px 1fr; gap: 11px; align-self: end; margin: 0; padding: 0; border: 0; background: transparent; }
 .help-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #ffc96a; color: #155758; font-family: "Abril Fatface", Georgia, serif; font-size: 1rem; }
