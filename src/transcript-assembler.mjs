@@ -1,6 +1,16 @@
 const SPEAKER_ID_PATTERN = /^SPEAKER_\d{2,}$/;
 const ALLOWED_ROLES = new Set(["caller", "customer", "unknown"]);
 
+const CALLER_LANGUAGE_PATTERNS = [
+  { weight: 8, pattern: /\b(?:transfer|send|move|wire|deposit)\b.{0,50}\b(?:money|funds|balance|account|\$\s?\d)/i },
+  { weight: 8, pattern: /\b(?:password|passcode|pin|one[- ]time code|verification code|security code|social security number|ssn)\b/i },
+  { weight: 6, pattern: /\b(?:do not|don't)\s+(?:tell|hang up|call|contact)|stay on the (?:line|phone)|keep this between us\b/i },
+  { weight: 4, pattern: /\b(?:right now|immediately|urgent|act now|time is running out)\b/i },
+  { weight: 3, pattern: /\b(?:fraud department|security team|federal agent|police|irs|bank investigator|government)\b/i },
+  { weight: 3, pattern: /\b(?:i(?:'m| am) (?:calling )?from|calling (?:you )?from|this is .{0,30} (?:at|with|from))\b/i },
+  { weight: 3, pattern: /\b(?:charge|transaction|payment|purchase|withdrawal)\b.{0,55}\$\s?\d/i },
+];
+
 function assertConversationId(conversationId) {
   if (typeof conversationId !== "string" || !conversationId.trim()) {
     throw new Error("conversation_id must be a non-empty string");
@@ -99,6 +109,39 @@ export class TranscriptAssembler {
       this.#callerSpeakerId = null;
     }
     this.#speakerRoles.set(speakerId, role);
+  }
+
+  assignSpeakerRolesAutomatically() {
+    const words = this.#sortedWords();
+    if (words.length === 0) {
+      throw new Error("Cannot identify speakers without finalized words");
+    }
+
+    const speakerText = new Map();
+    const firstWordIndex = new Map();
+    for (const [index, word] of words.entries()) {
+      if (!firstWordIndex.has(word.speaker_id)) firstWordIndex.set(word.speaker_id, index);
+      speakerText.set(word.speaker_id, `${speakerText.get(word.speaker_id) ?? ""} ${word.text}`.trim());
+    }
+
+    const ranked = [...speakerText].map(([speakerId, text]) => ({
+      speakerId,
+      firstWordIndex: firstWordIndex.get(speakerId),
+      score: CALLER_LANGUAGE_PATTERNS.reduce(
+        (total, rule) => total + (rule.pattern.test(text) ? rule.weight : 0),
+        0,
+      ),
+    })).sort((left, right) =>
+      right.score - left.score
+      || left.firstWordIndex - right.firstWordIndex
+      || left.speakerId.localeCompare(right.speakerId),
+    );
+
+    const callerSpeakerId = ranked[0].speakerId;
+    for (const { speakerId } of ranked) {
+      this.setSpeakerRole(speakerId, speakerId === callerSpeakerId ? "caller" : "customer");
+    }
+    return callerSpeakerId;
   }
 
   ingestDeepgramResult(result) {

@@ -1,30 +1,93 @@
 import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
 
 const elements = Object.fromEntries([
-  "analyze", "assessment", "assessment-help", "conversation-id", "copy",
-  "download", "error", "interim", "output", "output-help", "speakers",
-  "start", "status", "stop", "turns",
+  "actions-panel", "active-view", "error", "ready-view", "recommendations",
+  "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
+  "start", "state-detail", "state-symbol", "state-title", "stop", "timer",
+  "warning-panel", "warning-signs",
 ].map((id) => [id.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), document.querySelector(`#${id}`)]));
 
 let assembler;
 let mediaRecorder;
 let mediaStream;
 let socket;
-let finalTranscript;
 let recordedChunks = [];
 let recordedMimeType;
-let liveCaptionParts = [];
 let isFinalizing = false;
+let timerId;
+let recordingStartedAt;
 
-function setStatus(label, state = "idle") {
-  elements.status.textContent = label;
-  elements.status.dataset.state = state;
+const RISK_CONTENT = {
+  critical: {
+    label: "Very high risk",
+    title: "This call may be dangerous",
+    message: "End contact with the caller. Do not send money or share any personal information.",
+    icon: "!",
+  },
+  high: {
+    label: "High risk",
+    title: "This call has serious warning signs",
+    message: "Do not trust the caller's instructions. Hang up and contact the organization yourself.",
+    icon: "!",
+  },
+  guarded: {
+    label: "Use caution",
+    title: "This call has some warning signs",
+    message: "Pause before taking action. Verify the caller using a phone number you already trust.",
+    icon: "?",
+  },
+  low: {
+    label: "No strong warning signs",
+    title: "We did not hear clear signs of a scam",
+    message: "Still be careful. CallCheck can miss things, and unexpected callers should always be verified.",
+    icon: "✓",
+  },
+};
+
+const SIGNAL_LABELS = {
+  authority: "The caller used official-sounding authority",
+  claimed_identity: "The caller claimed to represent an organization",
+  claimed_transaction: "The caller mentioned an unexpected transaction",
+  requested_credentials: "The caller asked for a password or security code",
+  requested_transfer: "The caller asked you to move or send money",
+  urgency: "The caller pressured you to act quickly",
+  secrecy: "The caller asked you to keep the call secret",
+  isolation: "The caller tried to keep you on the line",
+  threat: "The caller used threats or frightening consequences",
+};
+
+function conversationId() {
+  return `call-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+function showReady() {
+  clearInterval(timerId);
+  elements.readyView.hidden = false;
+  elements.activeView.hidden = true;
+  elements.result.hidden = true;
+  elements.error.hidden = true;
+  elements.start.disabled = false;
+  document.body.dataset.phase = "ready";
+  elements.start.focus();
+}
+
+function showActive(title, detail, state = "listening") {
+  elements.readyView.hidden = true;
+  elements.activeView.hidden = false;
+  elements.result.hidden = true;
+  elements.stateTitle.textContent = title;
+  elements.stateDetail.textContent = detail;
+  elements.stateSymbol.className = `state-symbol ${state}`;
+  document.body.dataset.phase = state;
 }
 
 function showError(message) {
   elements.error.textContent = message;
   elements.error.hidden = false;
-  setStatus("Error", "error");
+  elements.readyView.hidden = false;
+  elements.activeView.hidden = true;
+  elements.start.disabled = false;
+  document.body.dataset.phase = "error";
 }
 
 function clearError() {
@@ -32,120 +95,93 @@ function clearError() {
   elements.error.hidden = true;
 }
 
+function friendlyError(error) {
+  if (error?.name === "NotAllowedError") {
+    return "Microphone access is needed to check the call. Choose Allow and try again.";
+  }
+  if (error?.name === "NotFoundError") {
+    return "We could not find a microphone on this device.";
+  }
+  if (error?.message === "No call audio was recorded") {
+    return "We did not hear any audio. Move the phone closer and try again.";
+  }
+  return "We could not complete the call check. Please try again.";
+}
+
 function preferredMimeType() {
   return ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
     .find((type) => MediaRecorder.isTypeSupported(type));
 }
 
-function appendTurnEvent(event) {
-  const item = document.createElement("li");
-  item.className = "turn";
-  const metadata = document.createElement("span");
-  metadata.className = "turn-meta";
-  metadata.textContent = `${event.turn.speaker_id} · ${event.turn.role} · ${event.turn.start_ms}–${event.turn.end_ms} ms`;
-  const text = document.createElement("span");
-  text.textContent = event.turn.text;
-  item.append(metadata, text);
-  elements.turns.append(item);
+function updateTimer() {
+  const elapsedSeconds = Math.floor((Date.now() - recordingStartedAt) / 1000);
+  const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
+  const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+  elements.timer.textContent = `${minutes}:${seconds}`;
 }
 
-function renderSpeakers() {
-  const speakerIds = assembler?.getSpeakerIds() ?? [];
-  elements.speakers.replaceChildren();
-  if (speakerIds.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "No finalized speakers yet.";
-    elements.speakers.append(empty);
-    return;
+function renderAssessment(assessment) {
+  const risk = assessment.risk ?? { level: "low" };
+  const content = RISK_CONTENT[risk.level] ?? RISK_CONTENT.guarded;
+  elements.result.dataset.risk = risk.level;
+  elements.riskLabel.textContent = content.label;
+  elements.resultTitle.textContent = content.title;
+  elements.resultMessage.textContent = content.message;
+  elements.resultIcon.textContent = content.icon;
+
+  const recommendations = assessment.recommendations ?? [];
+  elements.recommendations.replaceChildren();
+  const fallbackActions = risk.level === "low"
+    ? ["If the caller asks for money or a security code, hang up.", "Contact organizations using a phone number you already trust."]
+    : ["End the call without sharing information.", "Call the organization using the number on your card or official website."];
+  for (const action of recommendations.map((item) => item.action).concat(recommendations.length ? [] : fallbackActions)) {
+    const item = document.createElement("li");
+    item.textContent = action;
+    elements.recommendations.append(item);
   }
-  for (const speakerId of speakerIds) {
-    const row = document.createElement("div");
-    row.className = "speaker-row";
-    const label = document.createElement("span");
-    label.className = "speaker-id";
-    label.textContent = speakerId;
-    const select = document.createElement("select");
-    select.setAttribute("aria-label", `Role for ${speakerId}`);
-    for (const role of ["unknown", "caller", "customer"]) {
-      const option = document.createElement("option");
-      option.value = role;
-      option.textContent = role;
-      option.selected = assembler.getSpeakerRole(speakerId) === role;
-      select.append(option);
-    }
-    select.addEventListener("change", () => {
-      assembler.setSpeakerRole(speakerId, select.value);
-      renderSpeakers();
-      renderFinalTranscript();
-    });
-    row.append(label, select);
-    elements.speakers.append(row);
+
+  const signals = assessment.transcript_analysis?.signals ?? [];
+  const warningLabels = [...new Set(signals.map((signal) => SIGNAL_LABELS[signal.kind]).filter(Boolean))];
+  elements.warningSigns.replaceChildren();
+  for (const label of warningLabels) {
+    const item = document.createElement("li");
+    item.textContent = label;
+    elements.warningSigns.append(item);
   }
+  elements.warningPanel.hidden = warningLabels.length === 0;
+  elements.result.hidden = false;
+  elements.activeView.hidden = true;
+  document.body.dataset.phase = "result";
+  elements.result.focus?.();
+  elements.result.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function renderFinalTranscript() {
-  finalTranscript = undefined;
-  elements.copy.disabled = true;
-  elements.download.disabled = true;
-  elements.analyze.disabled = true;
-  elements.assessment.textContent = "No assessment yet.";
-  elements.assessmentHelp.textContent = "Finalize the call and identify the caller first.";
-  try {
-    finalTranscript = assembler.buildFinalTranscript();
-    elements.output.textContent = JSON.stringify(finalTranscript, null, 2);
-    elements.outputHelp.textContent = "Ready for the fraud pipeline.";
-    elements.copy.disabled = false;
-    elements.download.disabled = false;
-    elements.analyze.disabled = false;
-  } catch (error) {
-    elements.output.textContent = "Waiting for finalized transcript data.";
-    elements.outputHelp.textContent = error.message;
-  }
-}
-
-async function analyzeTranscript() {
-  if (!finalTranscript) return;
-  clearError();
-  elements.analyze.disabled = true;
-  elements.assessmentHelp.textContent = "Running claims, financial, and risk analysis…";
-  setStatus("Analyzing risk");
-  try {
-    const response = await fetch("/api/analyze-transcript", {
+async function analyzeTranscript(finalTranscript) {
+  showActive("Checking for scam warning signs…", "This usually takes only a few seconds.", "processing");
+  const response = await fetch("/api/analyze-transcript", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(finalTranscript),
     });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.detail ?? body.error ?? "Post-transcript analysis failed");
-    }
-    const assessment = body.assessment ?? body;
-    elements.assessment.textContent = JSON.stringify(assessment, null, 2);
-    const risk = assessment.risk;
-    elements.assessmentHelp.textContent = risk
-      ? `Risk: ${risk.level} (${risk.score}/100)`
-      : "Assessment complete.";
-    setStatus("Assessed");
-  } catch (error) {
-    showError(error.message);
-  } finally {
-    elements.analyze.disabled = !finalTranscript;
-  }
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.detail ?? body.error ?? "We could not check this call. Please try again.");
+  renderAssessment(body.assessment ?? body);
 }
 
 function cleanupMedia() {
   mediaStream?.getTracks().forEach((track) => track.stop());
   mediaStream = undefined;
   mediaRecorder = undefined;
-  elements.start.disabled = isFinalizing;
   elements.stop.disabled = true;
 }
 
 async function finalizeRecordedCall() {
   isFinalizing = true;
+  clearInterval(timerId);
   cleanupMedia();
-  setStatus("Analyzing full call");
-  elements.interim.textContent = "Deepgram is separating speakers across the complete recording…";
+  showActive("Preparing your safety check…", "We are separating the voices and reviewing the call.", "processing");
+  elements.timer.textContent = "";
+  elements.stop.hidden = true;
   try {
     const recording = new Blob(recordedChunks, { type: recordedMimeType });
     if (recording.size === 0) throw new Error("No call audio was recorded");
@@ -155,23 +191,19 @@ async function finalizeRecordedCall() {
       body: recording,
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error ?? "Full-call diarization failed");
+    if (!response.ok) throw new Error("The recorded call could not be processed");
 
-    const conversationId = assembler.conversationId;
-    assembler = new TranscriptAssembler({ conversationId });
-    elements.turns.replaceChildren();
-    for (const turnEvent of assembler.ingestDeepgramPrerecorded(body)) {
-      appendTurnEvent(turnEvent);
-      window.dispatchEvent(new CustomEvent("transcript-turn", { detail: turnEvent }));
-    }
-    elements.interim.textContent = "Full-call analysis complete. Speaker labels below are final.";
-    renderSpeakers();
-    renderFinalTranscript();
-    setStatus("Finalized");
+    const activeConversationId = assembler.conversationId;
+    assembler = new TranscriptAssembler({ conversationId: activeConversationId });
+    assembler.ingestDeepgramPrerecorded(body);
+    assembler.assignSpeakerRolesAutomatically();
+    const finalTranscript = assembler.buildFinalTranscript();
+    await analyzeTranscript(finalTranscript);
   } catch (error) {
-    showError(error.message);
+    showError(friendlyError(error));
   } finally {
     isFinalizing = false;
+    elements.stop.hidden = false;
     cleanupMedia();
   }
 }
@@ -194,29 +226,27 @@ function startRecording() {
     void finalizeRecordedCall();
   });
   mediaRecorder.start(250);
-  setStatus("Listening", "live");
+  recordingStartedAt = Date.now();
+  updateTimer();
+  timerId = setInterval(updateTimer, 1000);
+  showActive("Listening to the call…", "Keep the phone on speaker and near this device.", "listening");
   elements.stop.disabled = false;
 }
 
 async function startSession() {
   clearError();
   try {
-    assembler = new TranscriptAssembler({ conversationId: elements.conversationId.value.trim() });
-    liveCaptionParts = [];
-    elements.turns.replaceChildren();
-    elements.assessment.textContent = "No assessment yet.";
-    elements.assessmentHelp.textContent = "Finalize the call and identify the caller first.";
-    elements.interim.textContent = "Waiting for speech…";
-    renderSpeakers();
-    renderFinalTranscript();
+    assembler = new TranscriptAssembler({ conversationId: conversationId() });
     elements.start.disabled = true;
-    setStatus("Checking server");
+    showActive("Getting ready…", "Checking that CallCheck is available.", "processing");
+    elements.stop.disabled = true;
     const healthResponse = await fetch("/api/health", { cache: "no-store" });
     const health = await healthResponse.json();
     if (!healthResponse.ok || !health.deepgram_configured) {
-      throw new Error("Add DEEPGRAM_API_KEY to .env and restart the server");
+      throw new Error("CallCheck is unavailable");
     }
-    setStatus("Requesting microphone");
+    elements.stateTitle.textContent = "Allow microphone access";
+    elements.stateDetail.textContent = "Choose Allow when your browser asks for permission.";
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -227,17 +257,12 @@ async function startSession() {
       if (message.type === "ready") {
         startRecording();
       } else if (message.type === "Results") {
-        const transcript = message.channel?.alternatives?.[0]?.transcript ?? "";
-        if (message.is_final === true) {
-          if (transcript) liveCaptionParts.push(transcript);
-          elements.interim.textContent = `Live captions (speaker labels provisional): ${liveCaptionParts.join(" ")}`;
-        } else if (transcript) {
-          elements.interim.textContent = `Live captions (speaker labels provisional): ${[...liveCaptionParts, transcript].join(" ")}`;
-        }
+        // Live results keep the Deepgram stream active. The complete recording is
+        // analyzed after the user ends the call so speaker separation is consistent.
       } else if (message.type === "configuration_error" || message.type === "proxy_error") {
         showError(message.message);
       } else if (message.type === "stream_closed") {
-        if (!isFinalizing) setStatus("Stream closed");
+        if (!isFinalizing) showError("The listening connection closed. Please try again.");
       }
     });
     socket.addEventListener("error", () => {
@@ -245,11 +270,11 @@ async function startSession() {
       cleanupMedia();
     });
     socket.addEventListener("close", () => {
-      if (!isFinalizing && elements.status.dataset.state !== "error") setStatus("Stream closed");
+      if (!isFinalizing && document.body.dataset.phase !== "error") showError("The listening connection closed. Please try again.");
       cleanupMedia();
     });
   } catch (error) {
-    showError(error.message);
+    showError(friendlyError(error));
     cleanupMedia();
   }
 }
@@ -262,18 +287,4 @@ function stopSession() {
 
 elements.start.addEventListener("click", startSession);
 elements.stop.addEventListener("click", stopSession);
-elements.analyze.addEventListener("click", analyzeTranscript);
-elements.copy.addEventListener("click", async () => {
-  if (!finalTranscript) return;
-  await navigator.clipboard.writeText(JSON.stringify(finalTranscript, null, 2));
-  elements.outputHelp.textContent = "Copied final transcript JSON.";
-});
-elements.download.addEventListener("click", () => {
-  if (!finalTranscript) return;
-  const blob = new Blob([JSON.stringify(finalTranscript, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `${finalTranscript.conversation_id}.json`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-});
+elements.restart.addEventListener("click", showReady);

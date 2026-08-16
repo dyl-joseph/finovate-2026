@@ -99,6 +99,31 @@ test("requires a transcribed caller and rejects inverted timestamps", () => {
   assert.throws(() => assembler.ingestDeepgramResult(result([{ speaker: 0, word: "No", start: 1, end: .5 }])), /cannot precede/);
 });
 
+test("automatically identifies the suspicious speaker and assigns customer roles", () => {
+  const assembler = new TranscriptAssembler({ conversationId: "automatic-role-call" });
+  assembler.ingestDeepgramResult(result([
+    { speaker: 0, word: "Hello? Who is calling?", start: 0.0, end: 0.8 },
+    { speaker: 1, word: "I'm calling from the fraud department.", start: 0.9, end: 2.1 },
+    { speaker: 1, word: "Move money immediately and do not tell anyone.", start: 2.2, end: 4.2 },
+  ]));
+
+  assert.equal(assembler.assignSpeakerRolesAutomatically(), "SPEAKER_01");
+  assert.equal(assembler.getSpeakerRole("SPEAKER_01"), "caller");
+  assert.equal(assembler.getSpeakerRole("SPEAKER_00"), "customer");
+  assert.equal(assembler.buildFinalTranscript().caller_speaker_id, "SPEAKER_01");
+});
+
+test("automatic role assignment falls back to the first speaker", () => {
+  const assembler = new TranscriptAssembler({ conversationId: "automatic-role-fallback" });
+  assembler.ingestDeepgramResult(result([
+    { speaker: 2, word: "Good morning.", start: 0.0, end: 0.5 },
+    { speaker: 4, word: "Hello there.", start: 0.6, end: 1.1 },
+  ]));
+
+  assert.equal(assembler.assignSpeakerRolesAutomatically(), "SPEAKER_02");
+  assert.equal(assembler.buildFinalTranscript().turns[1].role, "customer");
+});
+
 test("full-call batch results keep alternating speakers distinct and stable", () => {
   const assembler = new TranscriptAssembler({ conversationId: "two-speaker-call" });
   const events = assembler.ingestDeepgramPrerecorded({

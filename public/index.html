@@ -3,67 +3,83 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Full-call scam intelligence</title>
+    <meta name="theme-color" content="#f7f2e8" />
+    <meta name="description" content="A simple call safety checker that listens for common phone scam warning signs." />
+    <title>CallCheck — Phone scam protection</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">Finovate 2026 prototype</p>
-          <h1>Full-call scam intelligence</h1>
-          <p class="lede">Capture the call, separate its speakers, assign roles, and produce an explainable scam-risk assessment.</p>
+    <a class="skip-link" href="#main-content">Skip to call checker</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="CallCheck home">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>CallCheck</span>
+      </a>
+      <span class="support-note">Free call safety check</span>
+    </header>
+
+    <main id="main-content">
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">Phone scam protection</p>
+        <h1 id="page-title">Not sure about a caller?</h1>
+        <p class="lede">Put your phone on speaker. CallCheck will listen for common scam warning signs and tell you what to do next.</p>
+      </section>
+
+      <section class="checker-card" aria-labelledby="checker-heading">
+        <div id="ready-view">
+          <h2 id="checker-heading">Check this call in 3 easy steps</h2>
+          <ol class="steps">
+            <li><span>1</span><p><strong>Put the call on speaker</strong><small>Keep this device close to your phone.</small></p></li>
+            <li><span>2</span><p><strong>Start listening</strong><small>CallCheck listens only while you choose to record.</small></p></li>
+            <li><span>3</span><p><strong>End the check</strong><small>Your safety result appears automatically.</small></p></li>
+          </ol>
+          <button id="start" class="primary-action" type="button">
+            <span class="button-icon" aria-hidden="true">●</span>
+            Start listening
+          </button>
+          <p class="permission-note">Your browser will ask for microphone permission.</p>
         </div>
-        <span id="status" class="status" data-state="idle">Idle</span>
-      </header>
-      <section class="controls" aria-labelledby="session-heading">
-        <div>
-          <h2 id="session-heading">Session</h2>
-          <label for="conversation-id">Conversation ID</label>
-          <input id="conversation-id" value="demo-call-001" />
+
+        <div id="active-view" class="active-view" hidden>
+          <div id="state-symbol" class="state-symbol listening" aria-hidden="true"><span></span></div>
+          <p id="timer" class="timer">00:00</p>
+          <h2 id="state-title">Listening to the call…</h2>
+          <p id="state-detail">Keep the phone on speaker and near this device.</p>
+          <button id="stop" class="stop-action" type="button">End call and check safety</button>
         </div>
-        <div class="button-row">
-          <button id="start" type="button">Start microphone</button>
-          <button id="stop" type="button" class="secondary" disabled>Stop and finalize</button>
-        </div>
-        <p class="hint">The selected microphone must hear both speakers. Browser mic capture does not automatically include a remote caller or system audio.</p>
+
         <p id="error" class="error" role="alert" hidden></p>
       </section>
-      <div class="grid">
-        <section aria-labelledby="transcript-heading">
-          <h2 id="transcript-heading">Full-call speaker turns</h2>
-          <p id="interim" class="interim">Live captions will appear here; final speaker labels are calculated after you stop.</p>
-          <ol id="turns" class="turns"></ol>
-        </section>
-        <section aria-labelledby="speakers-heading">
-          <h2 id="speakers-heading">Speaker roles</h2>
-          <p class="hint">Identify exactly one external caller before export.</p>
-          <div id="speakers" class="speakers"><p>No finalized speakers yet.</p></div>
-        </section>
-      </div>
-      <section aria-labelledby="output-heading">
-        <div class="section-heading">
+
+      <section id="result" class="result-card" aria-labelledby="result-title" aria-live="polite" tabindex="-1" hidden>
+        <div class="result-summary">
+          <div id="result-icon" class="result-icon" aria-hidden="true">!</div>
           <div>
-            <h2 id="output-heading">Final transcript JSON</h2>
-            <p id="output-help" class="hint">Finalized words and a caller assignment are required.</p>
-          </div>
-          <div class="button-row compact">
-            <button id="analyze" type="button" disabled>Analyze risk</button>
-            <button id="copy" type="button" class="secondary" disabled>Copy JSON</button>
-            <button id="download" type="button" class="secondary" disabled>Download JSON</button>
+            <p id="risk-label" class="risk-label">Call check complete</p>
+            <h2 id="result-title">Your result will appear here</h2>
+            <p id="result-message" class="result-message"></p>
           </div>
         </div>
-        <pre id="output">Waiting for finalized transcript data.</pre>
-      </section>
-      <section aria-labelledby="assessment-heading">
-        <div class="section-heading">
-          <div>
-            <h2 id="assessment-heading">Scam intelligence assessment</h2>
-            <p id="assessment-help" class="hint">Finalize the call and identify the caller first.</p>
-          </div>
+        <div id="actions-panel" class="actions-panel">
+          <h3>What to do now</h3>
+          <ol id="recommendations" class="recommendations"></ol>
         </div>
-        <pre id="assessment">No assessment yet.</pre>
+        <div id="warning-panel" class="warning-panel" hidden>
+          <h3>Warning signs we heard</h3>
+          <ul id="warning-signs" class="warning-signs"></ul>
+        </div>
+        <button id="restart" class="secondary-action" type="button">Check another call</button>
       </section>
+
+      <aside class="help-card" aria-labelledby="help-title">
+        <span class="help-icon" aria-hidden="true">i</span>
+        <div>
+          <h2 id="help-title">Already shared money or a security code?</h2>
+          <p>End the call. Use the phone number on the back of your bank card to contact your bank right away.</p>
+        </div>
+      </aside>
+
+      <p class="disclaimer">CallCheck can miss warning signs. Never send money or share passwords because a caller tells you to.</p>
     </main>
     <script type="module" src="/app.js"></script>
   </body>
