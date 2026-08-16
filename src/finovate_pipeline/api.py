@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Body, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,6 +26,13 @@ from .financial import FinancialContext
 from .memory import EncounterMemory, SpeakerIdentity, SQLiteEncounterRepository
 from .models import Transcript
 from .pipeline import ScamAssessmentPipeline
+from .voice import (
+    DEFAULT_MATCH_THRESHOLD,
+    VoiceEmbedder,
+    VoiceMatcher,
+    VoiceMatch,
+    SQLiteSpeakerProfileRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +44,7 @@ class ApiSettings:
     ingest_api_key: str = "dev-only-change-me"
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
     environment: str = "development"
+    voice_match_threshold: float = DEFAULT_MATCH_THRESHOLD
 
     def __post_init__(self) -> None:
         if not self.ingest_api_key:
@@ -70,6 +78,9 @@ class ApiSettings:
             ),
             cors_origins=origins,
             environment=os.getenv("APP_ENV", "development"),
+            voice_match_threshold=float(
+                os.getenv("VOICE_MATCH_THRESHOLD", DEFAULT_MATCH_THRESHOLD)
+            ),
         )
 
 
@@ -153,6 +164,18 @@ class TurnIngestResponse(ConversationResponse):
     duplicate_segment: bool
 
 
+class VoiceMatchResponse(ApiModel):
+    profile_id: str
+    confidence: float
+    is_new: bool
+    similarity: float
+
+
+class SpeakerIdentityInferResponse(ConversationResponse):
+    speaker_identity: dict[str, Any] | None
+    voice_match: VoiceMatchResponse | None
+
+
 class HealthResponse(ApiModel):
     status: Literal["ok"]
     service: str
@@ -164,6 +187,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         from .supabase_storage import (
             SupabaseConversationRepository,
             SupabaseEncounterRepository,
+            SupabaseSpeakerProfileRepository,
         )
 
         conversation_repository = SupabaseConversationRepository(
@@ -171,6 +195,10 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
             resolved_settings.supabase_secret_key,
         )
         encounter_repository = SupabaseEncounterRepository(
+            resolved_settings.supabase_url,
+            resolved_settings.supabase_secret_key,
+        )
+        speaker_profile_repository = SupabaseSpeakerProfileRepository(
             resolved_settings.supabase_url,
             resolved_settings.supabase_secret_key,
         )
@@ -186,6 +214,9 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         encounter_repository = PostgresEncounterRepository(
             resolved_settings.database_url
         )
+        speaker_profile_repository = SQLiteSpeakerProfileRepository(
+            resolved_settings.database_path
+        )
     else:
         conversation_repository = SQLiteConversationRepository(
             resolved_settings.database_path
@@ -193,8 +224,15 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         encounter_repository = SQLiteEncounterRepository(
             resolved_settings.database_path
         )
+        speaker_profile_repository = SQLiteSpeakerProfileRepository(
+            resolved_settings.database_path
+        )
     pipeline = ScamAssessmentPipeline(
         encounter_memory=EncounterMemory(encounter_repository)
+    )
+    voice_matcher = VoiceMatcher(
+        speaker_profile_repository,
+        threshold=resolved_settings.voice_match_threshold,
     )
     bearer = HTTPBearer(auto_error=False)
 
@@ -203,6 +241,8 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
         yield
         conversation_repository.close()
         encounter_repository.close()
+        if hasattr(speaker_profile_repository, "close"):
+            speaker_profile_repository.close()
 
     application = FastAPI(
         title="Finovate Scam Intelligence API",
@@ -429,6 +469,81 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
                 detail=str(exc),
             ) from exc
         return response_for(conversation_id, analyze_conversation(conversation_id))
+
+    @application.post(
+        "/v1/conversations/{conversation_id}/speaker-identity/from-audio",
+        response_model=SpeakerIdentityInferResponse,
+        tags=["speaker identity"],
+        dependencies=[Depends(require_ingest_auth)],
+    )
+    def infer_speaker_identity_from_audio(
+        conversation_id: str,
+        audio: bytes = Body(default=b""),
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+    ) -> SpeakerIdentityInferResponse:
+        """Identify the caller from a raw audio slice using local voice embeddings.
+
+        The body is the raw audio (WebM/Ogg/WAV) covering the caller's speech
+        window. A matched profile folds the new voice into its rolling
+        embedding; a first-time caller gets a fresh profile. The resulting
+        identity is stored on the conversation and the assessment recomputed,
+        so repeat callers immediately surface ``REPEAT_FLAGGED_SPEAKER``.
+        """
+        get_conversation_or_404(conversation_id)
+        if not audio:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Audio body is empty",
+            )
+        if start_ms is not None and end_ms is not None and end_ms < start_ms:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="end_ms cannot be before start_ms",
+            )
+
+        embedding = voice_matcher.embedder.embed(audio, start_ms, end_ms)
+        if embedding is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Voice embedding is unavailable on this deployment; "
+                    "install resemblyzer/torch or supply an upstream "
+                    "speaker identity instead"
+                ),
+            )
+
+        match: VoiceMatch = voice_matcher.identify(embedding)
+        identity_data = {
+            "profile_id": match.profile_id,
+            "match_confidence": match.confidence,
+            "source": "local_voice_embedding",
+        }
+        try:
+            SpeakerIdentity.from_dict(identity_data)
+            conversation_repository.set_speaker_identity(
+                conversation_id,
+                identity_data,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+        assessment = analyze_conversation(conversation_id)
+        return SpeakerIdentityInferResponse(
+            conversation_id=conversation_id,
+            status="assessed" if assessment is not None else "collecting",
+            assessment=assessment,
+            speaker_identity=identity_data,
+            voice_match=VoiceMatchResponse(
+                profile_id=match.profile_id,
+                confidence=match.confidence,
+                is_new=match.is_new,
+                similarity=match.similarity,
+            ),
+        )
 
     @application.post(
         "/v1/conversations/{conversation_id}/analyze",

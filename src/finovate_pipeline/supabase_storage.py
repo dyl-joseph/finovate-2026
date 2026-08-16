@@ -14,6 +14,7 @@ from .api_storage import (
     StoredTurn,
 )
 from .memory import EncounterRecord
+from .voice import SpeakerProfile, SpeakerProfileRepository
 
 
 class _SupabaseRepository:
@@ -244,3 +245,41 @@ class SupabaseEncounterRepository(_SupabaseRepository):
             )
             for row in response.json()
         )
+
+
+class SupabaseSpeakerProfileRepository(_SupabaseRepository):
+    """Persist voice profiles through Supabase's server-side Data API."""
+
+    def list_profiles(self) -> tuple[SpeakerProfile, ...]:
+        response = self._client.get(
+            "speaker_profiles",
+            params={
+                "select": "profile_id,embedding_json,sample_count,last_seen_at",
+                "order": "profile_id.asc",
+                "limit": "10000",
+            },
+        )
+        self._raise_for_status(response)
+        return tuple(
+            SpeakerProfile(
+                profile_id=row["profile_id"],
+                embedding=tuple(row["embedding_json"]),
+                sample_count=row["sample_count"],
+                last_seen_at=row["last_seen_at"],
+            )
+            for row in response.json()
+        )
+
+    def upsert(self, profile: SpeakerProfile) -> None:
+        response = self._client.post(
+            "speaker_profiles",
+            params={"on_conflict": "profile_id"},
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            json={
+                "profile_id": profile.profile_id,
+                "embedding_json": list(profile.embedding),
+                "sample_count": profile.sample_count,
+                "last_seen_at": profile.last_seen_at,
+            },
+        )
+        self._raise_for_status(response)

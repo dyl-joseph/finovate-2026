@@ -223,12 +223,25 @@ async function updateLiveAssessment() {
   }
 }
 
-async function analyzeTranscript(finalTranscript) {
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result).split(",").at(-1) ?? ""));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function analyzeTranscript(finalTranscript, recording = null) {
   showActive("Checking for scam warning signs…", "This usually takes only a few seconds.", "processing");
+  const payload = { ...finalTranscript };
+  if (recording && recording.size > 0) {
+    payload.recording = await blobToBase64(recording);
+  }
   const response = await fetch("/api/analyze-transcript", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(finalTranscript),
+      body: JSON.stringify(payload),
     });
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail ?? body.error ?? "We could not check this call. Please try again.");
@@ -266,7 +279,7 @@ async function finalizeRecordedCall() {
     assembler.ingestDeepgramPrerecorded(body);
     assembler.assignSpeakerRolesAutomatically();
     const finalTranscript = assembler.buildFinalTranscript();
-    await analyzeTranscript(finalTranscript);
+    await analyzeTranscript(finalTranscript, recording);
   } catch (error) {
     showError(friendlyError(error));
   } finally {
