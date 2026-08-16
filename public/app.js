@@ -1,7 +1,7 @@
 import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
 
 const elements = Object.fromEntries([
-  "actions-panel", "active-view", "error", "live-assessment", "live-assessment-detail",
+  "actions-panel", "active-view", "checker-card", "error", "live-assessment", "live-assessment-detail",
   "live-assessment-label", "live-assessment-verdict", "ready-view", "recommendations",
   "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
   "start", "state-detail", "state-symbol", "state-title", "stop", "timer",
@@ -46,7 +46,7 @@ const RISK_CONTENT = {
   low: {
     label: "No strong warning signs",
     title: "We did not hear clear signs of a scam",
-    message: "Still be careful. CallCheck can miss things, and unexpected callers should always be verified.",
+    message: "Still be careful. ScamMap can miss things, and unexpected callers should always be verified.",
     icon: "✓",
   },
 };
@@ -72,6 +72,7 @@ function showReady() {
   clearInterval(liveAssessmentTimerId);
   elements.readyView.hidden = false;
   elements.activeView.hidden = true;
+  elements.checkerCard.hidden = false;
   elements.result.hidden = true;
   elements.error.hidden = true;
   elements.start.disabled = false;
@@ -80,6 +81,7 @@ function showReady() {
 }
 
 function showActive(title, detail, state = "listening") {
+  elements.checkerCard.hidden = false;
   elements.readyView.hidden = true;
   elements.activeView.hidden = false;
   elements.result.hidden = true;
@@ -158,10 +160,10 @@ function renderAssessment(assessment) {
   }
   elements.warningPanel.hidden = warningLabels.length === 0;
   elements.result.hidden = false;
+  elements.checkerCard.hidden = true;
   elements.activeView.hidden = true;
   document.body.dataset.phase = "result";
   elements.result.focus?.();
-  elements.result.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function resetLiveAssessment() {
@@ -321,12 +323,12 @@ async function startSession() {
     assembler = new TranscriptAssembler({ conversationId: conversationId() });
     resetLiveAssessment();
     elements.start.disabled = true;
-    showActive("Getting ready…", "Checking that CallCheck is available.", "processing");
+    showActive("Getting ready…", "Checking that ScamMap is available.", "processing");
     elements.stop.disabled = true;
     const healthResponse = await fetch("/api/health", { cache: "no-store" });
     const health = await healthResponse.json();
     if (!healthResponse.ok || !health.deepgram_configured) {
-      throw new Error("CallCheck is unavailable");
+      throw new Error("ScamMap is unavailable");
     }
     elements.stateTitle.textContent = "Allow microphone access";
     elements.stateDetail.textContent = "Choose Allow when your browser asks for permission.";
