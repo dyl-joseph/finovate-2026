@@ -98,3 +98,41 @@ test("requires a transcribed caller and rejects inverted timestamps", () => {
   assert.throws(() => assembler.buildFinalTranscript(), /must belong/);
   assert.throws(() => assembler.ingestDeepgramResult(result([{ speaker: 0, word: "No", start: 1, end: .5 }])), /cannot precede/);
 });
+
+test("full-call batch results keep alternating speakers distinct and stable", () => {
+  const assembler = new TranscriptAssembler({ conversationId: "two-speaker-call" });
+  const events = assembler.ingestDeepgramPrerecorded({
+    results: {
+      channels: [{ alternatives: [{ words: [
+        { speaker: 0, word: "I'm", start: .16, end: .4 },
+        { speaker: 0, word: "calling", punctuated_word: "calling.", start: .41, end: 1 },
+        { speaker: 1, word: "Who", start: 1.2, end: 1.4 },
+        { speaker: 1, word: "is", start: 1.41, end: 1.55 },
+        { speaker: 1, word: "this", punctuated_word: "this?", start: 1.56, end: 1.9 },
+        { speaker: 0, word: "Chase", punctuated_word: "Chase.", start: 2.1, end: 2.6 },
+      ] }] }],
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.turn.speaker_id), [
+    "SPEAKER_00", "SPEAKER_01", "SPEAKER_00",
+  ]);
+  assert.deepEqual(assembler.getSpeakerIds(), ["SPEAKER_00", "SPEAKER_01"]);
+  assembler.setSpeakerRole("SPEAKER_00", "caller");
+  assembler.setSpeakerRole("SPEAKER_01", "customer");
+  assert.deepEqual(assembler.buildFinalTranscript().turns.map(({ speaker_id, role, text }) => ({
+    speaker_id, role, text,
+  })), [
+    { speaker_id: "SPEAKER_00", role: "caller", text: "I'm calling." },
+    { speaker_id: "SPEAKER_01", role: "customer", text: "Who is this?" },
+    { speaker_id: "SPEAKER_00", role: "caller", text: "Chase." },
+  ]);
+});
+
+test("rejects prerecorded responses without word-level diarization", () => {
+  const assembler = new TranscriptAssembler({ conversationId: "bad-batch" });
+  assert.throws(
+    () => assembler.ingestDeepgramPrerecorded({ results: { channels: [] } }),
+    /did not include word-level results/,
+  );
+});

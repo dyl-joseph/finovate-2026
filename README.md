@@ -4,9 +4,12 @@ Planning and supporting tools for the Financial Scam Intelligence Layer.
 
 ## Live diarization app
 
-The local app records browser microphone audio, proxies it through the local
-Node server, streams it to Deepgram Nova-3, and assembles finalized word results
-into the required speaker-turn JSON.
+The local app records the complete browser microphone session while streaming
+provisional captions through the local Node server. When you stop the call, it
+uploads the complete recording to Deepgram Nova-3's batch `v2` diarizer and
+assembles those word-level results into the required speaker-turn JSON. The
+full-call pass has more context for distinguishing speakers than the streaming
+diarizer.
 
 Copy the environment template and add the Deepgram key you created:
 
@@ -29,15 +32,15 @@ npm start
 
 Open `http://127.0.0.1:3000`, select **Start microphone**, and allow microphone
 access. The microphone must hear both participants for single-channel speaker
-diarization. After finalized speakers appear, assign one speaker as `caller`
-and optionally assign the other as `customer`. Stop the session, then copy or
-download the final transcript JSON.
+diarization. Speak naturally with alternating turns, then select **Stop and
+finalize**. Wait for **Finalized**, assign one speaker as `caller` and the other
+as `customer`, then copy or download the final transcript JSON.
 
 The API key remains on the local server and is never returned to the browser.
-Only Deepgram results with `is_final: true` enter the transcript assembler or
-emit `transcript_turn` browser events. Live audio and transcripts are sent to
-Deepgram when this app is running; use synthetic demo calls rather than real
-financial or personal data.
+Streaming results are captions only. Final `transcript_turn` events and exported
+JSON are rebuilt from the complete-call batch response. Live audio, the retained
+in-memory recording, and transcripts are sent to Deepgram when this app is
+running; use synthetic demo calls rather than real financial or personal data.
 
 ## Deepgram keyterms
 
@@ -68,5 +71,5 @@ is documented in
 The machine-readable output contract is
 [`schemas/final-transcript.schema.json`](schemas/final-transcript.schema.json).
 
-Live audio capture and the streaming ASR connection are intentionally outside
-the current scope.
+The browser microphone and streaming-caption path are implemented, but the final
+speaker labels intentionally come from the more accurate full-call batch pass.

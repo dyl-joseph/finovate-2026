@@ -104,6 +104,18 @@ export class TranscriptAssembler {
   ingestDeepgramResult(result) {
     if (result?.type !== "Results" || result.is_final !== true) return [];
     const words = result.channel?.alternatives?.[0]?.words ?? [];
+    return this.#ingestFinalizedWords(words);
+  }
+
+  ingestDeepgramPrerecorded(response) {
+    const words = response?.results?.channels?.[0]?.alternatives?.[0]?.words;
+    if (!Array.isArray(words)) {
+      throw new Error("Deepgram prerecorded response did not include word-level results");
+    }
+    return this.#ingestFinalizedWords(words);
+  }
+
+  #ingestFinalizedWords(words) {
     const newWords = [];
     for (const [sourceIndex, word] of words.entries()) {
       const startMs = secondsToMilliseconds(word.start, "word.start");

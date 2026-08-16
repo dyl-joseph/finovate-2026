@@ -10,6 +10,10 @@ let mediaRecorder;
 let mediaStream;
 let socket;
 let finalTranscript;
+let recordedChunks = [];
+let recordedMimeType;
+let liveCaptionParts = [];
+let isFinalizing = false;
 
 function setStatus(label, state = "idle") {
   elements.status.textContent = label;
@@ -98,22 +102,61 @@ function cleanupMedia() {
   mediaStream?.getTracks().forEach((track) => track.stop());
   mediaStream = undefined;
   mediaRecorder = undefined;
-  elements.start.disabled = false;
+  elements.start.disabled = isFinalizing;
   elements.stop.disabled = true;
+}
+
+async function finalizeRecordedCall() {
+  isFinalizing = true;
+  cleanupMedia();
+  setStatus("Analyzing full call");
+  elements.interim.textContent = "Deepgram is separating speakers across the complete recording…";
+  try {
+    const recording = new Blob(recordedChunks, { type: recordedMimeType });
+    if (recording.size === 0) throw new Error("No call audio was recorded");
+    const response = await fetch("/api/transcribe-call", {
+      method: "POST",
+      headers: { "Content-Type": recordedMimeType },
+      body: recording,
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error ?? "Full-call diarization failed");
+
+    const conversationId = assembler.conversationId;
+    assembler = new TranscriptAssembler({ conversationId });
+    elements.turns.replaceChildren();
+    for (const turnEvent of assembler.ingestDeepgramPrerecorded(body)) {
+      appendTurnEvent(turnEvent);
+      window.dispatchEvent(new CustomEvent("transcript-turn", { detail: turnEvent }));
+    }
+    elements.interim.textContent = "Full-call analysis complete. Speaker labels below are final.";
+    renderSpeakers();
+    renderFinalTranscript();
+    setStatus("Finalized");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    isFinalizing = false;
+    cleanupMedia();
+  }
 }
 
 function startRecording() {
   const mimeType = preferredMimeType();
   if (!mimeType) throw new Error("This browser does not support WebM or Ogg Opus recording");
   mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+  recordedChunks = [];
+  recordedMimeType = mimeType;
   mediaRecorder.addEventListener("dataavailable", (event) => {
-    if (event.data.size > 0 && socket?.readyState === WebSocket.OPEN) socket.send(event.data);
+    if (event.data.size === 0) return;
+    recordedChunks.push(event.data);
+    if (socket?.readyState === WebSocket.OPEN) socket.send(event.data);
   });
   mediaRecorder.addEventListener("stop", () => {
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "CloseStream" }));
-      setStatus("Finalizing");
     }
+    void finalizeRecordedCall();
   });
   mediaRecorder.start(250);
   setStatus("Listening", "live");
@@ -124,6 +167,7 @@ async function startSession() {
   clearError();
   try {
     assembler = new TranscriptAssembler({ conversationId: elements.conversationId.value.trim() });
+    liveCaptionParts = [];
     elements.turns.replaceChildren();
     elements.interim.textContent = "Waiting for speech…";
     renderSpeakers();
@@ -148,20 +192,15 @@ async function startSession() {
       } else if (message.type === "Results") {
         const transcript = message.channel?.alternatives?.[0]?.transcript ?? "";
         if (message.is_final === true) {
-          for (const turnEvent of assembler.ingestDeepgramResult(message)) {
-            appendTurnEvent(turnEvent);
-            window.dispatchEvent(new CustomEvent("transcript-turn", { detail: turnEvent }));
-          }
-          elements.interim.textContent = "";
-          renderSpeakers();
-          renderFinalTranscript();
+          if (transcript) liveCaptionParts.push(transcript);
+          elements.interim.textContent = `Live captions (speaker labels provisional): ${liveCaptionParts.join(" ")}`;
         } else if (transcript) {
-          elements.interim.textContent = transcript;
+          elements.interim.textContent = `Live captions (speaker labels provisional): ${[...liveCaptionParts, transcript].join(" ")}`;
         }
       } else if (message.type === "configuration_error" || message.type === "proxy_error") {
         showError(message.message);
       } else if (message.type === "stream_closed") {
-        setStatus("Finalized");
+        if (!isFinalizing) setStatus("Stream closed");
       }
     });
     socket.addEventListener("error", () => {
@@ -169,7 +208,7 @@ async function startSession() {
       cleanupMedia();
     });
     socket.addEventListener("close", () => {
-      if (elements.status.dataset.state !== "error") setStatus("Finalized");
+      if (!isFinalizing && elements.status.dataset.state !== "error") setStatus("Stream closed");
       cleanupMedia();
     });
   } catch (error) {

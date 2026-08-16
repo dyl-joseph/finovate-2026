@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import WebSocket, { WebSocketServer } from "ws";
 
-import { buildDeepgramListenUrl } from "./deepgram-url.mjs";
+import { buildDeepgramListenUrl, buildDeepgramPrerecordedUrl } from "./deepgram-url.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PUBLIC_FILES = new Map([
@@ -21,6 +21,8 @@ const CONTENT_TYPES = new Map([
   [".mjs", "text/javascript; charset=utf-8"],
   [".css", "text/css; charset=utf-8"],
 ]);
+const MAX_CALL_BYTES = 50_000_000;
+const AUDIO_CONTENT_TYPES = new Set(["audio/webm", "audio/ogg", "audio/wav", "audio/x-wav"]);
 
 function jsonResponse(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -39,7 +41,67 @@ function setSecurityHeaders(response) {
   );
 }
 
-async function serveRequest(request, response, keytermCount, configured) {
+function readRequestBody(request) {
+  return new Promise((resolveBody, reject) => {
+    const chunks = [];
+    let byteLength = 0;
+    let tooLarge = false;
+    request.on("data", (chunk) => {
+      byteLength += chunk.length;
+      if (byteLength > MAX_CALL_BYTES) {
+        tooLarge = true;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (tooLarge) reject(Object.assign(new Error("Recorded call exceeds the 50 MB limit"), { statusCode: 413 }));
+      else resolveBody(Buffer.concat(chunks));
+    });
+    request.on("error", reject);
+  });
+}
+
+async function transcribeRecordedCall(request, response, { apiKey, deepgramBatchUrl, deepgramFetch }) {
+  if (!apiKey) {
+    jsonResponse(response, 503, { error: "DEEPGRAM_API_KEY is not configured on the server" });
+    return;
+  }
+  const contentType = (request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (!AUDIO_CONTENT_TYPES.has(contentType)) {
+    jsonResponse(response, 415, { error: "Recorded call must be WebM, Ogg, or WAV audio" });
+    return;
+  }
+  const body = await readRequestBody(request);
+  if (body.length === 0) {
+    jsonResponse(response, 400, { error: "Recorded call is empty" });
+    return;
+  }
+  const upstream = await deepgramFetch(deepgramBatchUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Token ${apiKey}`,
+      "Content-Type": contentType,
+    },
+    body,
+  });
+  const upstreamBody = await upstream.text();
+  if (!upstream.ok) {
+    jsonResponse(response, 502, {
+      error: "Deepgram could not diarize the recorded call",
+      status: upstream.status,
+    });
+    return;
+  }
+  response.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  response.end(upstreamBody);
+}
+
+async function serveRequest(request, response, dependencies) {
+  const { keytermCount, configured } = dependencies;
   setSecurityHeaders(response);
   const requestUrl = new URL(request.url, "http://localhost");
   if (request.method === "GET" && requestUrl.pathname === "/api/health") {
@@ -48,6 +110,10 @@ async function serveRequest(request, response, keytermCount, configured) {
       deepgram_configured: configured,
       keyterm_count: keytermCount,
     });
+    return;
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/api/transcribe-call") {
+    await transcribeRecordedCall(request, response, dependencies);
     return;
   }
   if (request.method !== "GET" || !PUBLIC_FILES.has(requestUrl.pathname)) {
@@ -130,11 +196,16 @@ export async function createAppServer(options = {}) {
     : process.env.DEEPGRAM_API_KEY;
   const apiKey = typeof configuredApiKey === "string" ? configuredApiKey.trim() : "";
   const { url: configuredDeepgramUrl, keytermCount } = await buildDeepgramListenUrl();
+  const { url: configuredDeepgramBatchUrl } = await buildDeepgramPrerecordedUrl();
   const deepgramUrl = options.deepgramUrl ?? configuredDeepgramUrl;
+  const deepgramBatchUrl = options.deepgramBatchUrl ?? configuredDeepgramBatchUrl;
+  const deepgramFetch = options.deepgramFetch ?? globalThis.fetch;
   const configured = Boolean(apiKey);
   const server = createServer((request, response) => {
-    serveRequest(request, response, keytermCount, configured).catch((error) => {
-      jsonResponse(response, 500, { error: error.message });
+    serveRequest(request, response, {
+      apiKey, configured, deepgramBatchUrl, deepgramFetch, keytermCount,
+    }).catch((error) => {
+      jsonResponse(response, error.statusCode ?? 500, { error: error.message });
     });
   });
   const socketServer = new WebSocketServer({ noServer: true, maxPayload: 2_000_000 });
@@ -165,7 +236,7 @@ export async function createAppServer(options = {}) {
       bridgeDeepgram(clientSocket, deepgramUrl, apiKey);
     });
   });
-  return { server, keytermCount, deepgramUrl };
+  return { server, keytermCount, deepgramUrl, deepgramBatchUrl };
 }
 
 async function start() {
