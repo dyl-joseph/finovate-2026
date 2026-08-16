@@ -2,6 +2,43 @@
 
 Planning and supporting tools for the Financial Scam Intelligence Layer.
 
+## Live diarization app
+
+The local app records browser microphone audio, proxies it through the local
+Node server, streams it to Deepgram Nova-3, and assembles finalized word results
+into the required speaker-turn JSON.
+
+Copy the environment template and add the Deepgram key you created:
+
+```sh
+cp .env.example .env
+```
+
+Edit `.env` so it contains:
+
+```dotenv
+DEEPGRAM_API_KEY=your_real_key
+```
+
+Then start the app:
+
+```sh
+npm install
+npm start
+```
+
+Open `http://127.0.0.1:3000`, select **Start microphone**, and allow microphone
+access. The microphone must hear both participants for single-channel speaker
+diarization. After finalized speakers appear, assign one speaker as `caller`
+and optionally assign the other as `customer`. Stop the session, then copy or
+download the final transcript JSON.
+
+The API key remains on the local server and is never returned to the browser.
+Only Deepgram results with `is_final: true` enter the transcript assembler or
+emit `transcript_turn` browser events. Live audio and transcripts are sent to
+Deepgram when this app is running; use synthetic demo calls rather than real
+financial or personal data.
+
 ## Deepgram keyterms
 
 The curated Nova-3 keyterm vocabulary lives in

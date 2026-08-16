@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live scam-call diarization</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Finovate 2026 prototype</p>
+          <h1>Live scam-call diarization</h1>
+          <p class="lede">Stream microphone audio to Deepgram, separate speakers, assign call roles, and export the required transcript.</p>
+        </div>
+        <span id="status" class="status" data-state="idle">Idle</span>
+      </header>
+      <section class="controls" aria-labelledby="session-heading">
+        <div>
+          <h2 id="session-heading">Session</h2>
+          <label for="conversation-id">Conversation ID</label>
+          <input id="conversation-id" value="demo-call-001" />
+        </div>
+        <div class="button-row">
+          <button id="start" type="button">Start microphone</button>
+          <button id="stop" type="button" class="secondary" disabled>Stop and finalize</button>
+        </div>
+        <p class="hint">The selected microphone must hear both speakers. Browser mic capture does not automatically include a remote caller or system audio.</p>
+        <p id="error" class="error" role="alert" hidden></p>
+      </section>
+      <div class="grid">
+        <section aria-labelledby="transcript-heading">
+          <h2 id="transcript-heading">Finalized turns</h2>
+          <p id="interim" class="interim">Interim captions will appear here.</p>
+          <ol id="turns" class="turns"></ol>
+        </section>
+        <section aria-labelledby="speakers-heading">
+          <h2 id="speakers-heading">Speaker roles</h2>
+          <p class="hint">Identify exactly one external caller before export.</p>
+          <div id="speakers" class="speakers"><p>No finalized speakers yet.</p></div>
+        </section>
+      </div>
+      <section aria-labelledby="output-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="output-heading">Final transcript JSON</h2>
+            <p id="output-help" class="hint">Finalized words and a caller assignment are required.</p>
+          </div>
+          <div class="button-row compact">
+            <button id="copy" type="button" class="secondary" disabled>Copy JSON</button>
+            <button id="download" type="button" class="secondary" disabled>Download JSON</button>
+          </div>
+        </div>
+        <pre id="output">Waiting for finalized transcript data.</pre>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

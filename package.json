@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "deepgram:keyterms": "node scripts/deepgram-keyterms.mjs",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
     "test": "node --test"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }
