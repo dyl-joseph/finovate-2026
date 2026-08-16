@@ -90,8 +90,8 @@ class PipelineIntegrationTests(unittest.TestCase):
 
         result = ScamAssessmentPipeline().analyze(transcript)
 
-        self.assertNotEqual(result.risk.level, RiskLevel.LOW)
-        self.assertGreaterEqual(result.risk.score, 35)
+        self.assertEqual(result.risk.level, RiskLevel.HIGH)
+        self.assertGreaterEqual(result.risk.score, 50)
 
     def test_two_calls_link_repeat_speaker_end_to_end(self) -> None:
         second_transcript = Transcript.from_dict(

@@ -37,7 +37,7 @@ _SIGNAL_WEIGHTS: dict[SignalKind, tuple[int, str]] = {
     SignalKind.CLAIMED_IDENTITY: (3, "Caller claimed an institutional identity."),
     SignalKind.CLAIMED_TRANSACTION: (4, "Caller claimed a financial event."),
     SignalKind.REQUESTED_TRANSFER: (25, "Caller requested movement of funds."),
-    SignalKind.REQUESTED_CREDENTIALS: (35, "Caller requested sensitive credentials."),
+    SignalKind.REQUESTED_CREDENTIALS: (50, "Caller requested sensitive credentials."),
     SignalKind.URGENCY: (10, "Caller used urgency or time pressure."),
     SignalKind.AUTHORITY: (5, "Caller invoked institutional authority."),
     SignalKind.SECRECY: (18, "Caller asked the customer to keep the interaction secret."),

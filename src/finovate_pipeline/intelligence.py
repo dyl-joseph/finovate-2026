@@ -67,8 +67,10 @@ _RULES: tuple[_Rule, ...] = (
         SignalKind.REQUESTED_CREDENTIALS,
         ScamStage.FINANCIAL_ACTION,
         re.compile(
-            r"\b(?:tell|give|read|send|share|confirm|provide|enter|type|input|"
-            r"put|submit|request|requesting)\b.{0,60}?"
+            r"\b(?:(?:tell|give|read|send|share|confirm|provide|enter|type|"
+            r"input|put|submit|request|requesting)|"
+            r"(?:(?:can|could|may) (?:i|we) have)|"
+            r"(?:(?:i|we) need)|what(?:'s| is))\b.{0,60}?"
             r"\b(?:password|passcode|pin|one[- ]time code|verification code|"
             r"security code|social security number|ssn)\b",
             re.IGNORECASE,

@@ -162,6 +162,26 @@ class TranscriptIntelligenceTests(unittest.TestCase):
 
         result = self.analyzer.analyze(transcript)
         self.assertEqual(result.signals[0].kind, SignalKind.REQUESTED_CREDENTIALS)
+
+    def test_extracts_conversational_credential_requests(self) -> None:
+        for text in (
+            "Can I have your password?",
+            "We need your PIN to continue.",
+            "What is your Social Security number?",
+        ):
+            with self.subTest(text=text):
+                transcript = Transcript(
+                    conversation_id="credential-variant",
+                    caller_speaker_id="A",
+                    turns=(TranscriptTurn("A", text, 0, 1200),),
+                )
+
+                result = self.analyzer.analyze(transcript)
+
+                self.assertEqual(
+                    result.signals[0].kind,
+                    SignalKind.REQUESTED_CREDENTIALS,
+                )
         self.assertEqual(result.signals[0].stage, ScamStage.FINANCIAL_ACTION)
 
 
