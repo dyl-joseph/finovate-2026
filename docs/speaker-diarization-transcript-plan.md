@@ -84,6 +84,12 @@ that is separate from the finalized transcript state.
 - Once identified, set `caller_speaker_id` and apply the corresponding role to
   that speaker's turns. Other speakers are not automatically customers unless
   the call context establishes that fact.
+- `caller_speaker_id` is required in the canonical final transcript. Before a
+  caller is identified, the assembler may maintain in-progress turns with
+  `unknown` roles, but it must not label that state as the final transcript.
+- If the normal role-mapping mechanism cannot identify the caller, the caller
+  identification stage must analyze every speaker as a candidate and select
+  the caller before finalization. It must not silently guess or omit the field.
 - Speaker IDs are scoped to one call and must not be treated as cross-call
   identity evidence.
 
@@ -96,10 +102,13 @@ that is separate from the finalized transcript state.
 5. Append subsequent words while the normalized speaker ID remains the same.
 6. Close the current turn immediately when the speaker changes.
 7. Use the first word's start time and last word's end time for the turn bounds.
-8. Preserve recognized wording; do not summarize, correct grammar, remove
+8. Reject any assembled turn whose `end_ms` is less than its `start_ms`.
+   Standard JSON Schema cannot compare sibling numeric fields, so this is a
+   mandatory runtime invariant rather than a schema-enforced comparison.
+9. Preserve recognized wording; do not summarize, correct grammar, remove
    repetition, or soften urgency and threats.
-9. Reconstruct punctuation from the ASR word representation when available.
-10. Emit turns in ascending `start_ms` order.
+10. Reconstruct punctuation from the ASR word representation when available.
+11. Emit turns in ascending `start_ms` order.
 
 Pauses by the same speaker do not require a new turn in the final transcript.
 The future streaming integration may emit a finalized live turn at a detected
@@ -148,7 +157,9 @@ Focused transcript-assembler tests should cover:
 - Stable speaker normalization throughout a conversation
 - Splitting exactly when the speaker changes
 - Ascending turn order and integer millisecond timestamps
+- Runtime rejection of turns where `end_ms < start_ms`
 - Unknown roles until an explicit mapping is supplied
+- Refusal to finalize until `caller_speaker_id` is resolved
 - Caller ID propagation after the caller is identified
 - Preservation of punctuation, repetition, threats, account names, codes,
   transfer destinations, phone numbers, and formatted currency

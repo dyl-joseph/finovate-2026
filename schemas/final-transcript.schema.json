@@ -37,6 +37,7 @@
     "turn": {
       "type": "object",
       "additionalProperties": false,
+      "$comment": "The transcript assembler must additionally enforce end_ms >= start_ms; JSON Schema draft 2020-12 cannot compare sibling numeric properties without a non-standard extension.",
       "required": ["speaker_id", "role", "text", "start_ms", "end_ms"],
       "properties": {
         "speaker_id": {
