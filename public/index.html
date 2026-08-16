@@ -15,29 +15,19 @@
         <span class="brand-mark" aria-hidden="true">S</span>
         <span>ScamMap</span>
       </a>
-      <span class="support-note">Free call safety check</span>
     </header>
 
     <main id="main-content">
-      <section class="intro" aria-labelledby="page-title">
-        <p class="eyebrow">Phone scam protection</p>
-        <h1 id="page-title">Not sure about a caller?</h1>
-        <p class="lede">Put your phone on speaker. ScamMap listens for common scam warning signs and tells you what to do next.</p>
-      </section>
-
-      <section id="checker-card" class="checker-card" aria-labelledby="checker-heading">
+      <section id="checker-card" class="checker-card" aria-labelledby="page-title">
         <div id="ready-view">
-          <h2 id="checker-heading">Check this call in 3 easy steps</h2>
-          <ol class="steps">
-            <li><span>1</span><p><strong>Put the call on speaker</strong><small>Keep this device close to your phone.</small></p></li>
-            <li><span>2</span><p><strong>Start listening</strong><small>ScamMap listens only while you choose to record.</small></p></li>
-            <li><span>3</span><p><strong>End the check</strong><small>Your safety result appears automatically.</small></p></li>
-          </ol>
+          <p class="eyebrow">Phone scam protection</p>
+          <h1 id="page-title">Is this call safe?</h1>
+          <p class="lede">Put the call on speaker, then let ScamMap listen for warning signs.</p>
           <button id="start" class="primary-action" type="button">
-            <span class="button-icon" aria-hidden="true">●</span>
+            <span class="button-icon" aria-hidden="true"></span>
             Start listening
           </button>
-          <p class="permission-note">Your browser will ask for microphone permission.</p>
+          <p class="permission-note">You stay in control. Listening stops when you tap “End listening.”</p>
         </div>
 
         <div id="active-view" class="active-view" hidden>
@@ -45,12 +35,8 @@
           <p id="timer" class="timer">00:00</p>
           <h2 id="state-title">Listening to the call…</h2>
           <p id="state-detail">Keep the phone on speaker and near this device.</p>
-          <section id="live-assessment" class="live-assessment" aria-live="polite" hidden>
-            <p id="live-assessment-label" class="live-assessment-label">Current call check</p>
-            <p id="live-assessment-verdict" class="live-assessment-verdict">Listening for enough speech to check this call.</p>
-            <p id="live-assessment-detail" class="live-assessment-detail">We refresh this safety check every 10 seconds while you listen.</p>
-          </section>
-          <button id="stop" class="stop-action" type="button">End call and check safety</button>
+          <p id="live-status" class="live-status" aria-live="polite">Checking the call every five seconds.</p>
+          <button id="stop" class="stop-action" type="button">End listening</button>
         </div>
 
         <p id="error" class="error" role="alert" hidden></p>
@@ -86,18 +72,8 @@
         <p class="identity-help">Shared personal information? <a href="https://www.identitytheft.gov/" target="_blank" rel="noopener noreferrer">Report identity theft</a>.</p>
         <button id="restart" class="secondary-action" type="button">Check another call</button>
       </section>
-
-      <aside class="help-card" aria-labelledby="help-title">
-        <span class="help-icon" aria-hidden="true">i</span>
-        <div>
-          <h2 id="help-title">Already shared money or a security code?</h2>
-          <p>End the call. Use the phone number on the back of your bank card to contact your bank right away.</p>
-          <a class="identity-link" href="https://www.identitytheft.gov/" target="_blank" rel="noopener noreferrer">Report identity theft</a>
-        </div>
-      </aside>
-
-      <p class="disclaimer">ScamMap can miss warning signs. Never send money or share passwords because a caller tells you to.</p>
     </main>
+    <footer class="site-footer">Never send money or share a security code because a caller tells you to.</footer>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -2,8 +2,7 @@ import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
 import { buildMemoryHighlights } from "/assessment-memory.mjs";
 
 const elements = Object.fromEntries([
-  "actions-panel", "active-view", "checker-card", "error", "live-assessment", "live-assessment-detail",
-  "live-assessment-label", "live-assessment-verdict", "ready-view", "recommendations",
+  "actions-panel", "active-view", "checker-card", "error", "live-status", "ready-view", "recommendations",
   "memory-highlights", "memory-panel", "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
   "start", "state-detail", "state-symbol", "state-title", "stop", "timer",
   "warning-panel", "warning-signs",
@@ -22,8 +21,9 @@ let liveAssessmentTimerId;
 let pendingLiveTurns = [];
 let liveSegmentNumber = 0;
 let hasLiveAssessment = false;
+let liveConversationId;
 
-const LIVE_ASSESSMENT_INTERVAL_MS = 10_000;
+const LIVE_ASSESSMENT_INTERVAL_MS = 5_000;
 
 const RISK_CONTENT = {
   critical: {
@@ -89,6 +89,7 @@ function showActive(title, detail, state = "listening") {
   elements.stateTitle.textContent = title;
   elements.stateDetail.textContent = detail;
   elements.stateSymbol.className = `state-symbol ${state}`;
+  elements.liveStatus.hidden = state !== "listening";
   document.body.dataset.phase = state;
 }
 
@@ -190,18 +191,12 @@ function resetLiveAssessment() {
   pendingLiveTurns = [];
   liveSegmentNumber = 0;
   hasLiveAssessment = false;
-  elements.liveAssessment.hidden = true;
-  elements.liveAssessment.dataset.risk = "";
+  liveConversationId = undefined;
+  elements.liveStatus.textContent = "Checking the call every five seconds.";
 }
 
-function renderLiveAssessment(assessment) {
-  const risk = assessment.risk ?? { level: "low", score: 0 };
-  const content = RISK_CONTENT[risk.level] ?? RISK_CONTENT.guarded;
-  elements.liveAssessment.dataset.risk = risk.level;
-  elements.liveAssessmentLabel.textContent = `Current check · ${content.label}`;
-  elements.liveAssessmentVerdict.textContent = content.title;
-  elements.liveAssessmentDetail.textContent = `${content.message} Updated just now; we will check again in 10 seconds.`;
-  elements.liveAssessment.hidden = false;
+function markLiveAssessmentUpdated() {
+  elements.liveStatus.textContent = "Safety check updated. Still listening for new warning signs.";
   hasLiveAssessment = true;
 }
 
@@ -226,7 +221,7 @@ async function updateLiveAssessment() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversation_id: `${assembler.conversationId}-live`,
+        conversation_id: liveConversationId,
         caller_speaker_id: assembler.callerSpeakerId,
         metadata: { source: "live-transcription" },
         turns,
@@ -234,13 +229,10 @@ async function updateLiveAssessment() {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail ?? body.error ?? "Live assessment failed");
-    if (body.assessment) renderLiveAssessment(body.assessment);
+    if (body.assessment) markLiveAssessmentUpdated();
   } catch {
     pendingLiveTurns = [...turns, ...pendingLiveTurns];
-    elements.liveAssessment.hidden = false;
-    elements.liveAssessmentLabel.textContent = "Current call check";
-    elements.liveAssessmentVerdict.textContent = "Still listening to the call";
-    elements.liveAssessmentDetail.textContent = "We could not refresh the safety check yet. Keep listening and do not share money or security codes.";
+    elements.liveStatus.textContent = "Still listening. The next safety check will retry automatically.";
   }
 }
 
@@ -341,6 +333,7 @@ async function startSession() {
   try {
     assembler = new TranscriptAssembler({ conversationId: conversationId() });
     resetLiveAssessment();
+    liveConversationId = `${assembler.conversationId}-live`;
     elements.start.disabled = true;
     showActive("Getting ready…", "Checking that ScamMap is available.", "processing");
     elements.stop.disabled = true;
