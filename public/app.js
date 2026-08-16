@@ -18,12 +18,18 @@ let isFinalizing = false;
 let timerId;
 let recordingStartedAt;
 let liveAssessmentTimerId;
+let liveAssessmentFlushTimerId;
 let pendingLiveTurns = [];
 let liveSegmentNumber = 0;
 let hasLiveAssessment = false;
 let liveConversationId;
+let liveAssessmentInFlight = false;
+let liveAssessmentQueued = false;
+let liveAssessmentRequested = false;
 
 const LIVE_ASSESSMENT_INTERVAL_MS = 5_000;
+const LIVE_TRANSCRIPT_FLUSH_WAIT_MS = 1_200;
+const LIVE_TRANSCRIPT_SETTLE_MS = 200;
 
 const RISK_CONTENT = {
   critical: {
@@ -188,16 +194,36 @@ function renderAssessment(assessment) {
 
 function resetLiveAssessment() {
   clearInterval(liveAssessmentTimerId);
+  clearTimeout(liveAssessmentFlushTimerId);
   pendingLiveTurns = [];
   liveSegmentNumber = 0;
   hasLiveAssessment = false;
   liveConversationId = undefined;
+  liveAssessmentInFlight = false;
+  liveAssessmentQueued = false;
+  liveAssessmentRequested = false;
   elements.liveStatus.textContent = "Checking the call every five seconds.";
 }
 
 function markLiveAssessmentUpdated() {
-  elements.liveStatus.textContent = "Safety check updated. Still listening for new warning signs.";
+  elements.liveStatus.textContent = `Safety check updated at ${elements.timer.textContent}. Still listening.`;
   hasLiveAssessment = true;
+}
+
+function scheduleLiveAssessment(delayMs) {
+  clearTimeout(liveAssessmentFlushTimerId);
+  liveAssessmentFlushTimerId = setTimeout(() => {
+    void updateLiveAssessment();
+  }, delayMs);
+}
+
+function requestLiveAssessment() {
+  if (isFinalizing || !assembler) return;
+  liveAssessmentRequested = true;
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "Finalize" }));
+  }
+  scheduleLiveAssessment(LIVE_TRANSCRIPT_FLUSH_WAIT_MS);
 }
 
 function prepareLiveTurns(events) {
@@ -210,10 +236,17 @@ function prepareLiveTurns(events) {
       segment_id: `live-${String(++liveSegmentNumber).padStart(5, "0")}`,
     });
   }
+  if (liveAssessmentRequested) scheduleLiveAssessment(LIVE_TRANSCRIPT_SETTLE_MS);
 }
 
 async function updateLiveAssessment() {
   if (isFinalizing || !assembler || (!hasLiveAssessment && pendingLiveTurns.length === 0)) return;
+  liveAssessmentRequested = false;
+  if (liveAssessmentInFlight) {
+    liveAssessmentQueued = true;
+    return;
+  }
+  liveAssessmentInFlight = true;
   const turns = pendingLiveTurns;
   pendingLiveTurns = [];
   try {
@@ -233,6 +266,12 @@ async function updateLiveAssessment() {
   } catch {
     pendingLiveTurns = [...turns, ...pendingLiveTurns];
     elements.liveStatus.textContent = "Still listening. The next safety check will retry automatically.";
+  } finally {
+    liveAssessmentInFlight = false;
+    if (liveAssessmentQueued) {
+      liveAssessmentQueued = false;
+      scheduleLiveAssessment(0);
+    }
   }
 }
 
@@ -272,6 +311,7 @@ async function finalizeRecordedCall() {
   isFinalizing = true;
   clearInterval(timerId);
   clearInterval(liveAssessmentTimerId);
+  clearTimeout(liveAssessmentFlushTimerId);
   cleanupMedia();
   showActive("Preparing your safety check…", "We are separating the voices and reviewing the call.", "processing");
   elements.timer.textContent = "";
@@ -323,7 +363,7 @@ function startRecording() {
   recordingStartedAt = Date.now();
   updateTimer();
   timerId = setInterval(updateTimer, 1000);
-  liveAssessmentTimerId = setInterval(() => { void updateLiveAssessment(); }, LIVE_ASSESSMENT_INTERVAL_MS);
+  liveAssessmentTimerId = setInterval(requestLiveAssessment, LIVE_ASSESSMENT_INTERVAL_MS);
   showActive("Listening to the call…", "Keep the phone on speaker and near this device.", "listening");
   elements.stop.disabled = false;
 }

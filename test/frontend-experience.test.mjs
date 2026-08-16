@@ -22,6 +22,8 @@ test("live checks run every five seconds on one persistent conversation", async 
   const javascript = await readFile(new URL("app.js", publicUrl), "utf8");
 
   assert.match(javascript, /LIVE_ASSESSMENT_INTERVAL_MS\s*=\s*5_000/);
+  assert.match(javascript, /socket\.send\(JSON\.stringify\(\{ type: "Finalize" \}\)\)/);
+  assert.match(javascript, /setInterval\(requestLiveAssessment, LIVE_ASSESSMENT_INTERVAL_MS\)/);
   assert.match(javascript, /liveConversationId\s*=\s*`\$\{assembler\.conversationId\}-live`/);
   assert.match(javascript, /conversation_id:\s*liveConversationId/);
 });

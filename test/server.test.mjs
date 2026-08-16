@@ -279,6 +279,42 @@ test("proxies binary audio to an authenticated Deepgram socket and returns resul
   assert.equal(messages.find((message) => message.type === "Results").is_final, true);
 });
 
+test("forwards live transcript finalization controls to Deepgram", async (context) => {
+  const upstreamServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((resolve) => upstreamServer.once("listening", resolve));
+  context.after(() => upstreamServer.close());
+  const upstreamPort = upstreamServer.address().port;
+  const receivedFinalize = new Promise((resolve) => {
+    upstreamServer.once("connection", (upstreamSocket) => {
+      upstreamSocket.on("message", (data, isBinary) => {
+        if (!isBinary && JSON.parse(data.toString()).type === "Finalize") {
+          resolve(JSON.parse(data.toString()));
+        }
+      });
+    });
+  });
+
+  const { server } = await createAppServer({
+    apiKey: "server-secret",
+    deepgramUrl: new URL(`ws://127.0.0.1:${upstreamPort}/v1/listen`),
+  });
+  context.after(() => server.close());
+  const port = await listen(server);
+  const client = new WebSocket(`ws://127.0.0.1:${port}/api/live-transcription`);
+  context.after(() => client.terminate());
+  const ready = new Promise((resolve, reject) => {
+    client.on("message", (data) => {
+      if (JSON.parse(data.toString()).type === "ready") resolve();
+    });
+    client.once("error", reject);
+  });
+
+  await ready;
+  client.send(JSON.stringify({ type: "Finalize" }));
+
+  assert.deepEqual(await receivedFinalize, { type: "Finalize" });
+});
+
 test("uploads the complete recording to the v2 batch diarizer", async (context) => {
   const expectedResponse = {
     results: { channels: [{ alternatives: [{ words: [

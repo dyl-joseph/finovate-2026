@@ -472,8 +472,8 @@ function bridgeDeepgram(clientSocket, deepgramUrl, apiKey) {
     }
     try {
       const message = JSON.parse(data.toString());
-      if (message.type === "CloseStream") {
-        deepgramSocket.send(JSON.stringify({ type: "CloseStream" }));
+      if (message.type === "Finalize" || message.type === "CloseStream") {
+        deepgramSocket.send(JSON.stringify({ type: message.type }));
       }
     } catch {
       sendJson(clientSocket, { type: "proxy_error", message: "Invalid client control message" });
