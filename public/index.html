@@ -45,6 +45,11 @@
           <p id="timer" class="timer">00:00</p>
           <h2 id="state-title">Listening to the call…</h2>
           <p id="state-detail">Keep the phone on speaker and near this device.</p>
+          <section id="live-assessment" class="live-assessment" aria-live="polite" hidden>
+            <p id="live-assessment-label" class="live-assessment-label">Current call check</p>
+            <p id="live-assessment-verdict" class="live-assessment-verdict">Listening for enough speech to check this call.</p>
+            <p id="live-assessment-detail" class="live-assessment-detail">We refresh this safety check every 10 seconds while you listen.</p>
+          </section>
           <button id="stop" class="stop-action" type="button">End call and check safety</button>
         </div>
 

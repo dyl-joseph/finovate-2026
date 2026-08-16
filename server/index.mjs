@@ -95,6 +95,32 @@ function validateFinalTranscript(transcript) {
   return transcript;
 }
 
+function validateLiveAssessment(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw Object.assign(new Error("Live assessment must be a JSON object"), { statusCode: 400 });
+  }
+  if (typeof request.conversation_id !== "string" || !request.conversation_id.trim()) {
+    throw Object.assign(new Error("conversation_id is required"), { statusCode: 400 });
+  }
+  if (typeof request.caller_speaker_id !== "string" || !request.caller_speaker_id.trim()) {
+    throw Object.assign(new Error("caller_speaker_id is required"), { statusCode: 400 });
+  }
+  if (!Array.isArray(request.turns)) {
+    throw Object.assign(new Error("turns must be an array"), { statusCode: 400 });
+  }
+  for (const [index, turn] of request.turns.entries()) {
+    if (typeof turn?.segment_id !== "string" || !turn.segment_id.trim()) {
+      throw Object.assign(new Error(`turns[${index}].segment_id is required`), { statusCode: 400 });
+    }
+    validateFinalTranscript({
+      conversation_id: request.conversation_id,
+      caller_speaker_id: request.caller_speaker_id,
+      turns: [turn],
+    });
+  }
+  return request;
+}
+
 async function parseJsonRequest(request) {
   const contentType = (request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") {
@@ -181,6 +207,84 @@ async function analyzeFinalTranscript(
   jsonResponse(response, 200, result);
 }
 
+async function assessLiveTranscript(
+  request,
+  response,
+  { ingestApiKey, postTranscriptFetch, postTranscriptUrl },
+) {
+  if (!postTranscriptUrl || !ingestApiKey) {
+    jsonResponse(response, 503, { error: "Post-transcript pipeline is not configured" });
+    return;
+  }
+  const liveRequest = validateLiveAssessment(await parseJsonRequest(request));
+  const headers = {
+    Authorization: `Bearer ${ingestApiKey}`,
+    "Content-Type": "application/json",
+  };
+  const conversationUrl = new URL("/v1/conversations", postTranscriptUrl);
+  const createResponse = await postTranscriptFetch(conversationUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      conversation_id: liveRequest.conversation_id,
+      caller_speaker_id: liveRequest.caller_speaker_id,
+      metadata: { source: "live-transcription", ...liveRequest.metadata },
+    }),
+  });
+  if (!createResponse.ok && createResponse.status !== 409) {
+    const body = await readUpstreamJson(createResponse);
+    jsonResponse(response, 502, {
+      error: "Post-transcript pipeline rejected the live conversation",
+      upstream_status: createResponse.status,
+      detail: body.detail,
+    });
+    return;
+  }
+
+  let result;
+  for (const turn of liveRequest.turns) {
+    const turnResponse = await postTranscriptFetch(
+      new URL(
+        `/v1/conversations/${encodeURIComponent(liveRequest.conversation_id)}/turns`,
+        postTranscriptUrl,
+      ),
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ is_final: true, ...turn }),
+      },
+    );
+    result = await readUpstreamJson(turnResponse);
+    if (!turnResponse.ok) {
+      jsonResponse(response, 502, {
+        error: "Post-transcript pipeline rejected a live transcript turn",
+        upstream_status: turnResponse.status,
+        detail: result.detail,
+      });
+      return;
+    }
+  }
+  if (!result) {
+    const assessmentResponse = await postTranscriptFetch(
+      new URL(
+        `/v1/conversations/${encodeURIComponent(liveRequest.conversation_id)}/analyze`,
+        postTranscriptUrl,
+      ),
+      { method: "POST", headers },
+    );
+    result = await readUpstreamJson(assessmentResponse);
+    if (!assessmentResponse.ok) {
+      jsonResponse(response, 502, {
+        error: "Post-transcript pipeline could not refresh the live assessment",
+        upstream_status: assessmentResponse.status,
+        detail: result.detail,
+      });
+      return;
+    }
+  }
+  jsonResponse(response, 200, result);
+}
+
 async function transcribeRecordedCall(request, response, { apiKey, deepgramBatchUrl, deepgramFetch }) {
   if (!apiKey) {
     jsonResponse(response, 503, { error: "DEEPGRAM_API_KEY is not configured on the server" });
@@ -238,6 +342,10 @@ async function serveRequest(request, response, dependencies) {
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/analyze-transcript") {
     await analyzeFinalTranscript(request, response, dependencies);
+    return;
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/api/live-assessment") {
+    await assessLiveTranscript(request, response, dependencies);
     return;
   }
   if (request.method !== "GET" || !PUBLIC_FILES.has(requestUrl.pathname)) {
