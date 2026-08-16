@@ -1,0 +1,39 @@
+{
+  "customer_id": "demo-user-1",
+  "primary_account_id": "checking-4821",
+  "accounts": [
+    {
+      "account_id": "checking-4821",
+      "available_balance": "2575.32",
+      "transactions": [
+        {
+          "transaction_id": "txn-001",
+          "amount": "42.18",
+          "merchant": "Target",
+          "status": "posted"
+        },
+        {
+          "transaction_id": "txn-002",
+          "amount": "81.43",
+          "merchant": "Electric Company",
+          "status": "pending"
+        }
+      ],
+      "recipients": [
+        {
+          "recipient_id": "landlord-001",
+          "name": "Landlord",
+          "previous_transfer_count": 8
+        }
+      ]
+    }
+  ],
+  "transfer_intent": {
+    "amount": "2000.00",
+    "recipient_id": "secure-account-999",
+    "recipient_name": "Secure Account"
+  },
+  "metadata": {
+    "source": "synthetic-demo-data"
+  }
+}
