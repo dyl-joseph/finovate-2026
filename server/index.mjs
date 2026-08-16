@@ -12,6 +12,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PUBLIC_FILES = new Map([
   ["/", "public/index.html"],
   ["/app.js", "public/app.js"],
+  ["/assessment-memory.mjs", "public/assessment-memory.mjs"],
   ["/styles.css", "public/styles.css"],
   ["/src/transcript-assembler.mjs", "src/transcript-assembler.mjs"],
 ]);

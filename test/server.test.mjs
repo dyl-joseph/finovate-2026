@@ -25,6 +25,18 @@ test("health endpoint reports keyterm and secret configuration state", async (co
   });
 });
 
+test("serves the repeat-speaker frontend module", async (context) => {
+  const { server } = await createAppServer({ apiKey: null });
+  context.after(() => server.close());
+  const port = await listen(server);
+
+  const response = await fetch(`http://127.0.0.1:${port}/assessment-memory.mjs`);
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /^text\/javascript/);
+  assert.match(await response.text(), /export function buildMemoryHighlights/);
+});
+
 test("ingests a canonical transcript into the post-transcript API", async (context) => {
   const upstreamRequests = [];
   const postTranscriptFetch = async (url, options) => {
