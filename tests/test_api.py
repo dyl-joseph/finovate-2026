@@ -131,6 +131,10 @@ class ApiContractTests(unittest.TestCase):
             settings.database_url, "postgresql://example.test/finovate"
         )
 
+    def test_requires_complete_supabase_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be set together"):
+            ApiSettings(supabase_url="https://example.supabase.co")
+
     def test_mutations_require_bearer_authentication(self) -> None:
         with TestClient(self.make_app()) as client:
             missing = client.post("/v1/conversations", json={})

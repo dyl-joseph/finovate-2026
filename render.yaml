@@ -12,9 +12,11 @@ services:
         value: 3.12.4
       - key: APP_ENV
         value: production
-      - key: DATABASE_URL
+      - key: SUPABASE_URL
+        value: https://isgmqxbglyzzmobakxtp.supabase.co
+      - key: SUPABASE_SECRET_KEY
         sync: false
       - key: TRANSCRIPT_INGEST_API_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        sync: false
+        value: ""

@@ -32,6 +32,8 @@ from .pipeline import ScamAssessmentPipeline
 class ApiSettings:
     database_path: str = ":memory:"
     database_url: str | None = None
+    supabase_url: str | None = None
+    supabase_secret_key: str | None = None
     ingest_api_key: str = "dev-only-change-me"
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
     environment: str = "development"
@@ -46,6 +48,10 @@ class ApiSettings:
             raise ValueError(
                 "TRANSCRIPT_INGEST_API_KEY must be set in production"
             )
+        if bool(self.supabase_url) != bool(self.supabase_secret_key):
+            raise ValueError(
+                "SUPABASE_URL and SUPABASE_SECRET_KEY must be set together"
+            )
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -57,6 +63,8 @@ class ApiSettings:
         return cls(
             database_path=os.getenv("DATABASE_PATH", ":memory:"),
             database_url=os.getenv("DATABASE_URL") or None,
+            supabase_url=os.getenv("SUPABASE_URL") or None,
+            supabase_secret_key=os.getenv("SUPABASE_SECRET_KEY") or None,
             ingest_api_key=os.getenv(
                 "TRANSCRIPT_INGEST_API_KEY", "dev-only-change-me"
             ),
@@ -152,7 +160,21 @@ class HealthResponse(ApiModel):
 
 def create_app(settings: ApiSettings | None = None) -> FastAPI:
     resolved_settings = settings or ApiSettings.from_env()
-    if resolved_settings.database_url:
+    if resolved_settings.supabase_url and resolved_settings.supabase_secret_key:
+        from .supabase_storage import (
+            SupabaseConversationRepository,
+            SupabaseEncounterRepository,
+        )
+
+        conversation_repository = SupabaseConversationRepository(
+            resolved_settings.supabase_url,
+            resolved_settings.supabase_secret_key,
+        )
+        encounter_repository = SupabaseEncounterRepository(
+            resolved_settings.supabase_url,
+            resolved_settings.supabase_secret_key,
+        )
+    elif resolved_settings.database_url:
         from .postgres_storage import (
             PostgresConversationRepository,
             PostgresEncounterRepository,
