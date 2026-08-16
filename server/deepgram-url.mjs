@@ -7,7 +7,6 @@ export async function buildDeepgramListenUrl() {
   const options = {
     model: "nova-3",
     language: "en-US",
-    diarize: "true",
     diarize_model: "latest",
     smart_format: "true",
     interim_results: "true",
@@ -28,7 +27,6 @@ export async function buildDeepgramPrerecordedUrl() {
   const options = {
     model: "nova-3",
     language: "en-US",
-    diarize: "true",
     diarize_model: "v2",
     smart_format: "true",
     utterances: "true",

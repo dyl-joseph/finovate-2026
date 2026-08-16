@@ -7,7 +7,7 @@ test("builds Nova-3 diarization streaming configuration with all keyterms", asyn
   assert.equal(url.origin, "wss://api.deepgram.com");
   assert.equal(url.pathname, "/v1/listen");
   for (const [name, value] of Object.entries({
-    model: "nova-3", language: "en-US", diarize: "true", diarize_model: "latest",
+    model: "nova-3", language: "en-US", diarize_model: "latest",
     smart_format: "true", interim_results: "true", endpointing: "300",
     utterance_end_ms: "1000", vad_events: "true",
   })) assert.equal(url.searchParams.get(name), value);
@@ -23,10 +23,10 @@ test("uses the v2 diarizer for full-call prerecorded analysis", async () => {
   assert.equal(url.pathname, "/v1/listen");
   assert.equal(url.searchParams.get("model"), "nova-3");
   assert.equal(url.searchParams.get("language"), "en-US");
-  assert.equal(url.searchParams.get("diarize"), "true");
   assert.equal(url.searchParams.get("diarize_model"), "v2");
   assert.equal(url.searchParams.get("smart_format"), "true");
   assert.equal(url.searchParams.get("utterances"), "true");
   assert.equal(url.searchParams.getAll("keyterm").length, keytermCount);
   assert.equal(keytermCount, 98);
+  assert.equal(url.searchParams.has("diarize"), false);
 });
