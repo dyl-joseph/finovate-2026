@@ -75,3 +75,53 @@ links back to the transcript signal that triggered it and forward to the final
 risk node, allowing the frontend to explain why the score changed. High-risk
 results also include ordered recommendations such as ending the call, using an
 official contact channel, pausing a transfer, and verifying a new recipient.
+
+## HTTP service
+
+Install the package and test dependencies:
+
+```bash
+python3 -m pip install -e '.[test]'
+```
+
+Configure the service using the variables in `.env.example`, then export them
+into the shell that starts Uvicorn. A nondefault ingestion key is mandatory
+when `APP_ENV=production`.
+
+```bash
+export APP_ENV=development
+export DATABASE_PATH=./finovate.db
+export TRANSCRIPT_INGEST_API_KEY=replace-with-a-random-secret
+export CORS_ORIGINS=http://localhost:3000
+
+uvicorn finovate_pipeline.api:app --host 0.0.0.0 --port 8000
+```
+
+Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
+
+### Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Service health check |
+| `POST` | `/v1/conversations` | Start a conversation |
+| `POST` | `/v1/conversations/{id}/turns` | Add a finalized transcript turn |
+| `PUT` | `/v1/conversations/{id}/financial-context` | Set or replace financial context |
+| `PUT` | `/v1/conversations/{id}/speaker-identity` | Set an upstream speaker-profile match |
+| `POST` | `/v1/conversations/{id}/analyze` | Recompute the complete assessment |
+| `GET` | `/v1/conversations/{id}/assessment` | Fetch the latest assessment |
+
+Mutating endpoints require this header:
+
+```text
+Authorization: Bearer <TRANSCRIPT_INGEST_API_KEY>
+```
+
+Each turn must include a stable `segment_id` and `is_final: true`. Retrying an
+identical segment is safe and returns `duplicate_segment: true`; reusing the ID
+with different content returns HTTP 409. Turns are analyzed in timestamp order
+even if finalized segments arrive out of order.
+
+Financial context and speaker identity are optional. The API begins transcript
+analysis immediately and recomputes the complete assessment whenever either
+context is supplied later.

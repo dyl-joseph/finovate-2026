@@ -97,6 +97,8 @@ class SQLiteEncounterRepository:
 
     def _create_schema(self) -> None:
         with self._lock, self._connection:
+            self._connection.execute("PRAGMA busy_timeout = 5000")
+            self._connection.execute("PRAGMA journal_mode = WAL")
             self._connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS speaker_encounters (

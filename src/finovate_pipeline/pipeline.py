@@ -52,11 +52,15 @@ class ScamAssessmentPipeline:
     def analyze(
         self,
         transcript: Transcript,
-        financial_context: FinancialContext,
+        financial_context: FinancialContext | None = None,
         speaker_identity: SpeakerIdentity | None = None,
     ) -> PipelineResult:
         analysis = self._intelligence.analyze(transcript)
-        findings = self._financial_verifier.verify(analysis, financial_context)
+        findings = (
+            self._financial_verifier.verify(analysis, financial_context)
+            if financial_context is not None
+            else ()
+        )
         memory_findings = self._encounter_memory.evaluate(
             transcript.conversation_id,
             speaker_identity,

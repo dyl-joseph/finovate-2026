@@ -90,7 +90,7 @@ class EvidenceGraphBuilder:
     def build(
         self,
         analysis: AnalysisResult,
-        context: FinancialContext,
+        context: FinancialContext | None,
         findings: tuple[FinancialFinding, ...],
         risk: RiskAssessment,
         memory_findings: tuple[MemoryFinding, ...] = (),
@@ -197,7 +197,7 @@ class EvidenceGraphBuilder:
                 )
             )
 
-        for account in context.accounts:
+        for account in context.accounts if context is not None else ():
             nodes.append(
                 EvidenceNode(
                     id=self._account_node_id(account.account_id),
