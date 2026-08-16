@@ -3,7 +3,7 @@ services:
     name: finovate-post-transcript
     runtime: python
     plan: free
-    buildCommand: pip install .
+    buildCommand: pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu && pip install .
     startCommand: uvicorn finovate_pipeline.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeployTrigger: commit

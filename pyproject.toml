@@ -14,6 +14,7 @@ dependencies = [
     "uvicorn>=0.30,<1",
     "numpy>=1.26,<2",
     "librosa>=0.10,<1",
+    "torch==2.4.1",
     "resemblyzer>=0.1.4,<0.2",
 ]
 

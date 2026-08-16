@@ -13,6 +13,7 @@ instead of crashing the pipeline.
 
 from __future__ import annotations
 
+import logging
 import math
 import shutil
 import subprocess
@@ -23,6 +24,9 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Protocol
+
+
+logger = logging.getLogger(__name__)
 
 try:
     import numpy as np
@@ -197,7 +201,8 @@ class VoiceEmbedder:
                     samples = window
             embedding = encoder.embed_utterance(samples)
             return [float(value) for value in embedding]
-        except Exception:  # pragma: no cover - environment dependent
+        except Exception as exc:  # pragma: no cover - environment dependent
+            logger.warning("Voice embedding failed: %s", exc, exc_info=True)
             return None
 
 
