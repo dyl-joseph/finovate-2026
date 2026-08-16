@@ -84,10 +84,13 @@ h3 { margin-bottom: 12px; font-size: 1rem; }
 .memory-highlights span { color: #625b49; }
 .memory-highlights small { color: #806b40; font-size: .72rem; font-weight: 800; }
 .secondary-action { margin-top: 19px; border: 2px solid #155758; background: transparent; color: #155758; }
+.identity-help { margin: 17px 0 0; color: #51716e; font-size: .82rem; line-height: 1.35; text-align: center; }
+.identity-help a, .identity-link { color: #087da4; font-weight: 900; }
 .help-card { grid-column: 1; display: grid; grid-template-columns: 34px 1fr; gap: 11px; align-self: end; margin: 0; padding: 0; border: 0; background: transparent; }
 .help-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #ffc96a; color: #155758; font-family: "Abril Fatface", Georgia, serif; font-size: 1rem; }
 .help-card h2 { margin-bottom: 3px; font-size: .82rem; }
 .help-card p { margin: 0; color: #567571; font-size: .76rem; line-height: 1.35; }
+.identity-link { display: inline-block; margin-top: 5px; font-size: .76rem; }
 .disclaimer { grid-column: 1; margin: -36px 0 0 45px; color: #6c8884; font-size: .67rem; line-height: 1.3; }
 @keyframes pulse { 0% { opacity: .75; transform: scale(.72); } 100% { opacity: 0; transform: scale(1.3); } }
 @keyframes spin { to { transform: rotate(360deg); } }
