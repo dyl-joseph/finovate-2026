@@ -63,6 +63,36 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(decoded["risk"]["level"], "critical")
         self.assertEqual(decoded["risk"]["score"], 100)
 
+    def test_fragmented_live_credential_request_is_not_marked_safe(self) -> None:
+        transcript = Transcript.from_dict(
+            {
+                "conversation_id": "live-fragmented-call",
+                "caller_speaker_id": "SPEAKER_00",
+                "metadata": {"source": "live-transcription"},
+                "turns": [
+                    {
+                        "speaker_id": "SPEAKER_00",
+                        "role": "caller",
+                        "text": "Hello. This is Michael from",
+                        "start_ms": 0,
+                        "end_ms": 4800,
+                    },
+                    {
+                        "speaker_id": "SPEAKER_01",
+                        "role": "customer",
+                        "text": "Chase Bank calling. Put your password into this site.",
+                        "start_ms": 5000,
+                        "end_ms": 9800,
+                    },
+                ],
+            }
+        )
+
+        result = ScamAssessmentPipeline().analyze(transcript)
+
+        self.assertNotEqual(result.risk.level, RiskLevel.LOW)
+        self.assertGreaterEqual(result.risk.score, 35)
+
     def test_two_calls_link_repeat_speaker_end_to_end(self) -> None:
         second_transcript = Transcript.from_dict(
             {

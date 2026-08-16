@@ -15,6 +15,7 @@ from .models import (
     EvidenceSignal,
     ScamStage,
     SignalKind,
+    SpeakerRole,
     Transcript,
     TranscriptTurn,
 )
@@ -66,7 +67,8 @@ _RULES: tuple[_Rule, ...] = (
         SignalKind.REQUESTED_CREDENTIALS,
         ScamStage.FINANCIAL_ACTION,
         re.compile(
-            r"\b(?:tell|give|read|send|share|confirm)\b.{0,45}?"
+            r"\b(?:tell|give|read|send|share|confirm|provide|enter|type|input|"
+            r"put|submit|request|requesting)\b.{0,60}?"
             r"\b(?:password|passcode|pin|one[- ]time code|verification code|"
             r"security code|social security number|ssn)\b",
             re.IGNORECASE,
@@ -141,9 +143,8 @@ class TranscriptIntelligence:
     def analyze(self, transcript: Transcript) -> AnalysisResult:
         signals: list[EvidenceSignal] = []
 
-        for turn_index, turn in enumerate(transcript.turns):
-            if not transcript.is_caller_turn(turn):
-                continue
+        turns = self._turns_to_analyze(transcript)
+        for turn_index, turn in enumerate(turns):
             signals.extend(self._extract_turn(turn, turn_index, len(signals)))
 
         stages = tuple(
@@ -153,6 +154,27 @@ class TranscriptIntelligence:
             conversation_id=transcript.conversation_id,
             signals=tuple(signals),
             stages_reached=stages,
+        )
+
+    @staticmethod
+    def _turns_to_analyze(transcript: Transcript) -> tuple[TranscriptTurn, ...]:
+        if transcript.metadata.get("source") == "live-transcription":
+            # Streaming diarization can change speaker IDs when a periodic
+            # Finalize flush splits one person's sentence. Analyze the complete
+            # call window for live safety checks so risky language cannot be
+            # discarded merely because a five-second chunk was mislabeled.
+            return (
+                TranscriptTurn(
+                    speaker_id=transcript.caller_speaker_id
+                    or transcript.turns[0].speaker_id,
+                    text=" ".join(turn.text for turn in transcript.turns),
+                    start_ms=transcript.turns[0].start_ms,
+                    end_ms=transcript.turns[-1].end_ms,
+                    role=SpeakerRole.CALLER,
+                ),
+            )
+        return tuple(
+            turn for turn in transcript.turns if transcript.is_caller_turn(turn)
         )
 
     def _extract_turn(

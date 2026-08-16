@@ -120,6 +120,35 @@ class TranscriptIntelligenceTests(unittest.TestCase):
         result = self.analyzer.analyze(transcript)
         self.assertEqual(result.signals, ())
 
+    def test_live_analysis_recovers_risk_across_fragmented_speaker_labels(self) -> None:
+        transcript = Transcript(
+            conversation_id="live-call",
+            caller_speaker_id="SPEAKER_00",
+            metadata={"source": "live-transcription"},
+            turns=(
+                TranscriptTurn(
+                    "SPEAKER_00",
+                    "Hello. This is Michael from",
+                    0,
+                    4800,
+                    role=SpeakerRole.CALLER,
+                ),
+                TranscriptTurn(
+                    "SPEAKER_01",
+                    "Chase Bank calling. If you just put your password",
+                    5000,
+                    9800,
+                    role=SpeakerRole.CUSTOMER,
+                ),
+            ),
+        )
+
+        result = self.analyzer.analyze(transcript)
+        kinds = {signal.kind for signal in result.signals}
+
+        self.assertIn(SignalKind.CLAIMED_IDENTITY, kinds)
+        self.assertIn(SignalKind.REQUESTED_CREDENTIALS, kinds)
+
     def test_extracts_requested_credentials(self) -> None:
         transcript = Transcript(
             conversation_id="credential-call",
