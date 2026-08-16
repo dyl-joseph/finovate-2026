@@ -142,6 +142,21 @@ test("WebSocket fails safely when the API key is missing", async (context) => {
   });
 });
 
+test("WebSocket accepts the app's own origin", async (context) => {
+  const { server } = await createAppServer({ apiKey: null });
+  context.after(() => server.close());
+  const port = await listen(server);
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/api/live-transcription`, {
+    headers: { Origin: `http://127.0.0.1:${port}` },
+  });
+  context.after(() => socket.terminate());
+  const message = await new Promise((resolve, reject) => {
+    socket.once("message", (data) => resolve(JSON.parse(data.toString())));
+    socket.once("error", reject);
+  });
+  assert.equal(message.type, "configuration_error");
+});
+
 test("proxies binary audio to an authenticated Deepgram socket and returns results", async (context) => {
   const upstreamServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise((resolve) => upstreamServer.once("listening", resolve));

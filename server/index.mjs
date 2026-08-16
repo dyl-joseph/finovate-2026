@@ -257,6 +257,20 @@ function sendJson(socket, value) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
 }
 
+function isAllowedWebSocketOrigin(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const originUrl = new URL(origin);
+    const forwardedHost = request.headers["x-forwarded-host"]?.split(",")[0].trim();
+    const requestHost = forwardedHost || request.headers.host;
+    if (requestHost && originUrl.host === requestHost) return true;
+    return new Set(["127.0.0.1", "localhost", "::1"]).has(originUrl.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function bridgeDeepgram(clientSocket, deepgramUrl, apiKey) {
   const deepgramSocket = new WebSocket(deepgramUrl, {
     headers: { Authorization: `Token ${apiKey}` },
@@ -362,13 +376,9 @@ export async function createAppServer(options = {}) {
       socket.destroy();
       return;
     }
-    const origin = request.headers.origin;
-    if (origin) {
-      const originHostname = new URL(origin).hostname;
-      if (!new Set(["127.0.0.1", "localhost", "::1"]).has(originHostname)) {
-        socket.destroy();
-        return;
-      }
+    if (!isAllowedWebSocketOrigin(request)) {
+      socket.destroy();
+      return;
     }
     socketServer.handleUpgrade(request, socket, head, (clientSocket) => {
       if (!apiKey) {
@@ -393,13 +403,14 @@ export async function createAppServer(options = {}) {
 
 async function start() {
   const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+  const host = process.env.HOST?.trim() || "0.0.0.0";
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error("PORT must be an integer between 0 and 65535");
   }
   const { server, keytermCount } = await createAppServer();
-  server.listen(port, "127.0.0.1", () => {
+  server.listen(port, host, () => {
     const address = server.address();
-    console.log(`Diarization app: http://127.0.0.1:${address.port}`);
+    console.log(`Diarization app listening on ${host}:${address.port}`);
     console.log(`Deepgram keyterms: ${keytermCount}`);
     if (!process.env.DEEPGRAM_API_KEY) {
       console.warn("DEEPGRAM_API_KEY is missing; live transcription will not start.");
