@@ -23,6 +23,7 @@ const CONTENT_TYPES = new Map([
 ]);
 const MAX_CALL_BYTES = 50_000_000;
 const MAX_TRANSCRIPT_BYTES = 1_000_000;
+const MAX_ANALYZE_TRANSCRIPT_BYTES = 50_000_000;
 const AUDIO_CONTENT_TYPES = new Set(["audio/webm", "audio/ogg", "audio/wav", "audio/x-wav"]);
 
 function jsonResponse(response, statusCode, body) {
@@ -121,12 +122,12 @@ function validateLiveAssessment(request) {
   return request;
 }
 
-async function parseJsonRequest(request) {
+async function parseJsonRequest(request, maxBytes = MAX_TRANSCRIPT_BYTES) {
   const contentType = (request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") {
     throw Object.assign(new Error("Final transcript must use application/json"), { statusCode: 415 });
   }
-  const body = await readRequestBody(request, MAX_TRANSCRIPT_BYTES);
+  const body = await readRequestBody(request, maxBytes);
   try {
     return JSON.parse(body.toString("utf8"));
   } catch {
@@ -153,7 +154,9 @@ async function analyzeFinalTranscript(
     jsonResponse(response, 503, { error: "Post-transcript pipeline is not configured" });
     return;
   }
-  const transcript = validateFinalTranscript(await parseJsonRequest(request));
+  const parsed = await parseJsonRequest(request, MAX_ANALYZE_TRANSCRIPT_BYTES);
+  const { recording, ...transcriptFields } = parsed;
+  const transcript = validateFinalTranscript(transcriptFields);
   const headers = {
     Authorization: `Bearer ${ingestApiKey}`,
     "Content-Type": "application/json",
@@ -204,7 +207,56 @@ async function analyzeFinalTranscript(
       return;
     }
   }
+
+  if (typeof recording === "string" && recording.length > 0) {
+    const enhanced = await attachVoiceIdentity(
+      transcript,
+      recording,
+      ingestApiKey,
+      postTranscriptFetch,
+      postTranscriptUrl,
+    );
+    if (enhanced) result = enhanced;
+  }
   jsonResponse(response, 200, result);
+}
+
+function callerWindowMs(transcript) {
+  const callerTurns = (transcript.turns ?? []).filter((turn) => turn.role === "caller");
+  if (callerTurns.length === 0) return null;
+  return {
+    start_ms: Math.min(...callerTurns.map((turn) => turn.start_ms)),
+    end_ms: Math.max(...callerTurns.map((turn) => turn.end_ms)),
+  };
+}
+
+async function attachVoiceIdentity(transcript, recordingBase64, ingestApiKey, postTranscriptFetch, postTranscriptUrl) {
+  try {
+    const window = callerWindowMs(transcript);
+    const query = new URLSearchParams();
+    if (window) {
+      query.set("start_ms", String(window.start_ms));
+      query.set("end_ms", String(window.end_ms));
+    }
+    const audio = Buffer.from(recordingBase64, "base64");
+    const identityUrl = new URL(
+      `/v1/conversations/${encodeURIComponent(transcript.conversation_id)}/speaker-identity/from-audio`,
+      postTranscriptUrl,
+    );
+    if (query.toString()) identityUrl.search = query.toString();
+    const identityResponse = await postTranscriptFetch(identityUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ingestApiKey}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: audio,
+    });
+    if (identityResponse.ok) return await readUpstreamJson(identityResponse);
+  } catch (error) {
+    console.warn("Voice identity skipped:", error.message);
+  }
+  return null;
 }
 
 async function assessLiveTranscript(
