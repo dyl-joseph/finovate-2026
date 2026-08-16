@@ -7,7 +7,9 @@ from enum import StrEnum
 from typing import Any
 
 from .financial import FinancialContext, FinancialFinding, FindingKind
+from .memory import MemoryFinding
 from .models import AnalysisResult, EvidenceSignal, SignalKind
+from .recommendations import VerificationRecommendation
 from .risk import RiskAssessment
 
 
@@ -19,6 +21,9 @@ class NodeType(StrEnum):
     ACCOUNT = "account"
     ACCOUNT_FINDING = "account_finding"
     CONTRADICTION = "contradiction"
+    PRIOR_ENCOUNTER = "prior_encounter"
+    MEMORY_FINDING = "memory_finding"
+    RECOMMENDATION = "recommendation"
     RISK = "risk"
 
 
@@ -29,7 +34,9 @@ class EdgeType(StrEnum):
     CONTRADICTS = "contradicts"
     VERIFIES = "verifies"
     SUPPORTS = "supports"
+    MATCHES_PRIOR = "matches_prior"
     ELEVATES_RISK = "elevates_risk"
+    TRIGGERS_ACTION = "triggers_action"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +93,8 @@ class EvidenceGraphBuilder:
         context: FinancialContext,
         findings: tuple[FinancialFinding, ...],
         risk: RiskAssessment,
+        memory_findings: tuple[MemoryFinding, ...] = (),
+        recommendations: tuple[VerificationRecommendation, ...] = (),
     ) -> EvidenceGraph:
         nodes: list[EvidenceNode] = []
         edges: list[EvidenceEdge] = []
@@ -121,6 +130,70 @@ class EvidenceGraphBuilder:
                     target=risk_node_id,
                     type=EdgeType.ELEVATES_RISK,
                     label="elevates risk",
+                )
+            )
+
+        prior_node_ids: set[str] = set()
+        for finding in memory_findings:
+            nodes.append(
+                EvidenceNode(
+                    id=finding.finding_id,
+                    type=NodeType.MEMORY_FINDING,
+                    label=finding.description,
+                    confidence=finding.match_confidence,
+                    attributes={
+                        "kind": finding.kind.value,
+                        "speaker_profile_id": finding.speaker_profile_id,
+                        **finding.attributes,
+                    },
+                )
+            )
+            for conversation_id in finding.prior_conversation_ids:
+                prior_node_id = f"prior::{conversation_id}"
+                if prior_node_id not in prior_node_ids:
+                    nodes.append(
+                        EvidenceNode(
+                            id=prior_node_id,
+                            type=NodeType.PRIOR_ENCOUNTER,
+                            label=f"Prior call {conversation_id}",
+                            attributes={"conversation_id": conversation_id},
+                        )
+                    )
+                    prior_node_ids.add(prior_node_id)
+                    for speaker_id in speaker_ids:
+                        edges.append(
+                            EvidenceEdge(
+                                id=(
+                                    f"edge-speaker-match-{speaker_id}-"
+                                    f"{conversation_id}"
+                                ),
+                                source=self._speaker_node_id(speaker_id),
+                                target=prior_node_id,
+                                type=EdgeType.MATCHES_PRIOR,
+                                label=(
+                                    f"{finding.match_confidence:.0%} "
+                                    "speaker-profile match"
+                                ),
+                            )
+                        )
+                edges.append(
+                    EvidenceEdge(
+                        id=(
+                            f"edge-memory-{finding.finding_id}-{conversation_id}"
+                        ),
+                        source=prior_node_id,
+                        target=finding.finding_id,
+                        type=EdgeType.SUPPORTS,
+                        label="supports cross-call finding",
+                    )
+                )
+            edges.append(
+                EvidenceEdge(
+                    id=f"edge-risk-{finding.finding_id}",
+                    source=finding.finding_id,
+                    target=risk_node_id,
+                    type=EdgeType.ELEVATES_RISK,
+                    label=f"adds {finding.risk_weight} risk points",
                 )
             )
 
@@ -201,6 +274,30 @@ class EvidenceGraphBuilder:
                 },
             )
         )
+
+        for recommendation in recommendations:
+            nodes.append(
+                EvidenceNode(
+                    id=recommendation.recommendation_id,
+                    type=NodeType.RECOMMENDATION,
+                    label=recommendation.action,
+                    attributes={
+                        "kind": recommendation.kind.value,
+                        "priority": recommendation.priority.value,
+                        "rationale": recommendation.rationale,
+                        "source_ids": recommendation.source_ids,
+                    },
+                )
+            )
+            edges.append(
+                EvidenceEdge(
+                    id=f"edge-action-{recommendation.recommendation_id}",
+                    source=risk_node_id,
+                    target=recommendation.recommendation_id,
+                    type=EdgeType.TRIGGERS_ACTION,
+                    label="recommends safe action",
+                )
+            )
         return EvidenceGraph(nodes=tuple(nodes), edges=tuple(edges))
 
     @staticmethod

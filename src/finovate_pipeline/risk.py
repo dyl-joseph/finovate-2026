@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .financial import FinancialFinding
+from .memory import MemoryFinding
 from .models import AnalysisResult, SignalKind
 
 
@@ -46,12 +47,13 @@ _SIGNAL_WEIGHTS: dict[SignalKind, tuple[int, str]] = {
 
 
 class RiskEngine:
-    """Score unique signal categories plus verified financial findings."""
+    """Score unique signal categories plus financial and memory findings."""
 
     def assess(
         self,
         analysis: AnalysisResult,
         findings: tuple[FinancialFinding, ...],
+        memory_findings: tuple[MemoryFinding, ...] = (),
     ) -> RiskAssessment:
         factors: list[RiskFactor] = []
 
@@ -71,6 +73,17 @@ class RiskEngine:
             )
 
         for finding in findings:
+            factors.append(
+                RiskFactor(
+                    factor_id=f"factor-{finding.finding_id}",
+                    code=finding.kind.value,
+                    description=finding.description,
+                    weight=finding.risk_weight,
+                    source_ids=(finding.finding_id,),
+                )
+            )
+
+        for finding in memory_findings:
             factors.append(
                 RiskFactor(
                     factor_id=f"factor-{finding.finding_id}",

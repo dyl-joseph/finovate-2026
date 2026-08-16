@@ -3,8 +3,15 @@ import unittest
 
 from finovate_pipeline.financial import FinancialContext, FindingKind
 from finovate_pipeline.graph import EdgeType, NodeType
+from finovate_pipeline.memory import (
+    EncounterMemory,
+    MemoryFindingKind,
+    SpeakerIdentity,
+    SQLiteEncounterRepository,
+)
 from finovate_pipeline.models import Transcript
 from finovate_pipeline.pipeline import ScamAssessmentPipeline
+from finovate_pipeline.recommendations import RecommendationKind
 from finovate_pipeline.risk import RiskLevel
 
 
@@ -55,6 +62,69 @@ class PipelineIntegrationTests(unittest.TestCase):
 
         self.assertEqual(decoded["risk"]["level"], "critical")
         self.assertEqual(decoded["risk"]["score"], 100)
+
+    def test_two_calls_link_repeat_speaker_end_to_end(self) -> None:
+        second_transcript = Transcript.from_dict(
+            {
+                "conversation_id": "demo-call-002",
+                "caller_speaker_id": "SPEAKER_01",
+                "turns": [
+                    {
+                        "speaker_id": "SPEAKER_01",
+                        "role": "caller",
+                        "text": "I'm calling from PayPal fraud department.",
+                        "start_ms": 0,
+                        "end_ms": 1400,
+                    },
+                    {
+                        "speaker_id": "SPEAKER_01",
+                        "role": "caller",
+                        "text": "Move $2,000 to an account immediately.",
+                        "start_ms": 1500,
+                        "end_ms": 3100,
+                    },
+                ],
+            }
+        )
+        identity = SpeakerIdentity("voice-profile-7", 0.93)
+
+        with SQLiteEncounterRepository() as repository:
+            pipeline = ScamAssessmentPipeline(
+                encounter_memory=EncounterMemory(repository)
+            )
+            first_result = pipeline.analyze(
+                self.transcript,
+                self.financial_context,
+                identity,
+            )
+            second_result = pipeline.analyze(
+                second_transcript,
+                self.financial_context,
+                identity,
+            )
+
+        memory_kinds = {
+            finding.kind for finding in second_result.memory_findings
+        }
+        recommendation_kinds = {
+            recommendation.kind for recommendation in second_result.recommendations
+        }
+        node_types = {node.type for node in second_result.graph.nodes}
+        edge_types = {edge.type for edge in second_result.graph.edges}
+
+        self.assertEqual(first_result.memory_findings, ())
+        self.assertIn(MemoryFindingKind.REPEAT_FLAGGED_SPEAKER, memory_kinds)
+        self.assertIn(MemoryFindingKind.IDENTITY_SWITCH, memory_kinds)
+        self.assertIn(RecommendationKind.REPORT_REPEAT_SCAM, recommendation_kinds)
+        self.assertIn(NodeType.PRIOR_ENCOUNTER, node_types)
+        self.assertIn(NodeType.MEMORY_FINDING, node_types)
+        self.assertIn(NodeType.RECOMMENDATION, node_types)
+        self.assertIn(EdgeType.MATCHES_PRIOR, edge_types)
+        self.assertIn(EdgeType.TRIGGERS_ACTION, edge_types)
+        serialized = json.loads(json.dumps(second_result.to_dict()))
+        self.assertEqual(
+            serialized["memory_findings"][0]["match_confidence"], 0.93
+        )
 
 
 if __name__ == "__main__":
