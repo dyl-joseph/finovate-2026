@@ -22,6 +22,7 @@ const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
 ]);
 const MAX_CALL_BYTES = 50_000_000;
+const MAX_TRANSCRIPT_BYTES = 1_000_000;
 const AUDIO_CONTENT_TYPES = new Set(["audio/webm", "audio/ogg", "audio/wav", "audio/x-wav"]);
 
 function jsonResponse(response, statusCode, body) {
@@ -41,25 +42,143 @@ function setSecurityHeaders(response) {
   );
 }
 
-function readRequestBody(request) {
+function readRequestBody(request, maxBytes = MAX_CALL_BYTES) {
   return new Promise((resolveBody, reject) => {
     const chunks = [];
     let byteLength = 0;
     let tooLarge = false;
     request.on("data", (chunk) => {
       byteLength += chunk.length;
-      if (byteLength > MAX_CALL_BYTES) {
+      if (byteLength > maxBytes) {
         tooLarge = true;
         return;
       }
       chunks.push(chunk);
     });
     request.on("end", () => {
-      if (tooLarge) reject(Object.assign(new Error("Recorded call exceeds the 50 MB limit"), { statusCode: 413 }));
+      if (tooLarge) reject(Object.assign(new Error("Request body is too large"), { statusCode: 413 }));
       else resolveBody(Buffer.concat(chunks));
     });
     request.on("error", reject);
   });
+}
+
+function validateFinalTranscript(transcript) {
+  if (!transcript || typeof transcript !== "object" || Array.isArray(transcript)) {
+    throw Object.assign(new Error("Final transcript must be a JSON object"), { statusCode: 400 });
+  }
+  if (typeof transcript.conversation_id !== "string" || !transcript.conversation_id.trim()) {
+    throw Object.assign(new Error("conversation_id is required"), { statusCode: 400 });
+  }
+  if (typeof transcript.caller_speaker_id !== "string" || !transcript.caller_speaker_id.trim()) {
+    throw Object.assign(new Error("caller_speaker_id is required"), { statusCode: 400 });
+  }
+  if (!Array.isArray(transcript.turns) || transcript.turns.length === 0) {
+    throw Object.assign(new Error("Final transcript must contain at least one turn"), { statusCode: 400 });
+  }
+  for (const [index, turn] of transcript.turns.entries()) {
+    const validRole = new Set(["caller", "customer", "unknown"]).has(turn?.role);
+    if (
+      !turn
+      || typeof turn.speaker_id !== "string"
+      || !validRole
+      || typeof turn.text !== "string"
+      || !turn.text.trim()
+      || !Number.isInteger(turn.start_ms)
+      || !Number.isInteger(turn.end_ms)
+      || turn.start_ms < 0
+      || turn.end_ms < turn.start_ms
+    ) {
+      throw Object.assign(new Error(`turns[${index}] is invalid`), { statusCode: 400 });
+    }
+  }
+  return transcript;
+}
+
+async function parseJsonRequest(request) {
+  const contentType = (request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    throw Object.assign(new Error("Final transcript must use application/json"), { statusCode: 415 });
+  }
+  const body = await readRequestBody(request, MAX_TRANSCRIPT_BYTES);
+  try {
+    return JSON.parse(body.toString("utf8"));
+  } catch {
+    throw Object.assign(new Error("Final transcript body is not valid JSON"), { statusCode: 400 });
+  }
+}
+
+async function readUpstreamJson(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text.slice(0, 500) };
+  }
+}
+
+async function analyzeFinalTranscript(
+  request,
+  response,
+  { ingestApiKey, postTranscriptFetch, postTranscriptUrl },
+) {
+  if (!postTranscriptUrl || !ingestApiKey) {
+    jsonResponse(response, 503, { error: "Post-transcript pipeline is not configured" });
+    return;
+  }
+  const transcript = validateFinalTranscript(await parseJsonRequest(request));
+  const headers = {
+    Authorization: `Bearer ${ingestApiKey}`,
+    "Content-Type": "application/json",
+  };
+  const createResponse = await postTranscriptFetch(
+    new URL("/v1/conversations", postTranscriptUrl),
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        conversation_id: transcript.conversation_id,
+        caller_speaker_id: transcript.caller_speaker_id,
+        metadata: transcript.metadata ?? {},
+      }),
+    },
+  );
+  if (!createResponse.ok && createResponse.status !== 409) {
+    const body = await readUpstreamJson(createResponse);
+    jsonResponse(response, 502, {
+      error: "Post-transcript pipeline rejected the conversation",
+      upstream_status: createResponse.status,
+      detail: body.detail,
+    });
+    return;
+  }
+
+  let result;
+  for (const [index, turn] of transcript.turns.entries()) {
+    const segmentId = `final-${String(index + 1).padStart(4, "0")}`;
+    const turnResponse = await postTranscriptFetch(
+      new URL(
+        `/v1/conversations/${encodeURIComponent(transcript.conversation_id)}/turns`,
+        postTranscriptUrl,
+      ),
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ segment_id: segmentId, is_final: true, ...turn }),
+      },
+    );
+    result = await readUpstreamJson(turnResponse);
+    if (!turnResponse.ok) {
+      jsonResponse(response, 502, {
+        error: `Post-transcript pipeline rejected turn ${index + 1}`,
+        upstream_status: turnResponse.status,
+        detail: result.detail,
+      });
+      return;
+    }
+  }
+  jsonResponse(response, 200, result);
 }
 
 async function transcribeRecordedCall(request, response, { apiKey, deepgramBatchUrl, deepgramFetch }) {
@@ -101,19 +220,24 @@ async function transcribeRecordedCall(request, response, { apiKey, deepgramBatch
 }
 
 async function serveRequest(request, response, dependencies) {
-  const { keytermCount, configured } = dependencies;
+  const { keytermCount, configured, postTranscriptConfigured } = dependencies;
   setSecurityHeaders(response);
   const requestUrl = new URL(request.url, "http://localhost");
   if (request.method === "GET" && requestUrl.pathname === "/api/health") {
     jsonResponse(response, 200, {
       ok: true,
       deepgram_configured: configured,
+      post_transcript_configured: postTranscriptConfigured,
       keyterm_count: keytermCount,
     });
     return;
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/transcribe-call") {
     await transcribeRecordedCall(request, response, dependencies);
+    return;
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/api/analyze-transcript") {
+    await analyzeFinalTranscript(request, response, dependencies);
     return;
   }
   if (request.method !== "GET" || !PUBLIC_FILES.has(requestUrl.pathname)) {
@@ -200,10 +324,32 @@ export async function createAppServer(options = {}) {
   const deepgramUrl = options.deepgramUrl ?? configuredDeepgramUrl;
   const deepgramBatchUrl = options.deepgramBatchUrl ?? configuredDeepgramBatchUrl;
   const deepgramFetch = options.deepgramFetch ?? globalThis.fetch;
+  const configuredPostTranscriptUrl = Object.hasOwn(options, "postTranscriptUrl")
+    ? options.postTranscriptUrl
+    : process.env.POST_TRANSCRIPT_URL;
+  const postTranscriptUrl = configuredPostTranscriptUrl
+    ? new URL(configuredPostTranscriptUrl)
+    : null;
+  const configuredIngestApiKey = Object.hasOwn(options, "ingestApiKey")
+    ? options.ingestApiKey
+    : process.env.TRANSCRIPT_INGEST_API_KEY;
+  const ingestApiKey = typeof configuredIngestApiKey === "string"
+    ? configuredIngestApiKey.trim()
+    : "";
+  const postTranscriptFetch = options.postTranscriptFetch ?? globalThis.fetch;
   const configured = Boolean(apiKey);
+  const postTranscriptConfigured = Boolean(postTranscriptUrl && ingestApiKey);
   const server = createServer((request, response) => {
     serveRequest(request, response, {
-      apiKey, configured, deepgramBatchUrl, deepgramFetch, keytermCount,
+      apiKey,
+      configured,
+      deepgramBatchUrl,
+      deepgramFetch,
+      ingestApiKey,
+      keytermCount,
+      postTranscriptConfigured,
+      postTranscriptFetch,
+      postTranscriptUrl,
     }).catch((error) => {
       jsonResponse(response, error.statusCode ?? 500, { error: error.message });
     });
@@ -236,7 +382,13 @@ export async function createAppServer(options = {}) {
       bridgeDeepgram(clientSocket, deepgramUrl, apiKey);
     });
   });
-  return { server, keytermCount, deepgramUrl, deepgramBatchUrl };
+  return {
+    server,
+    keytermCount,
+    deepgramUrl,
+    deepgramBatchUrl,
+    postTranscriptConfigured,
+  };
 }
 
 async function start() {

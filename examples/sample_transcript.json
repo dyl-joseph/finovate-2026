@@ -1,0 +1,38 @@
+{
+  "conversation_id": "demo-call-001",
+  "caller_speaker_id": "SPEAKER_01",
+  "turns": [
+    {
+      "speaker_id": "SPEAKER_01",
+      "role": "caller",
+      "text": "I'm calling from Chase fraud department.",
+      "start_ms": 0,
+      "end_ms": 1800
+    },
+    {
+      "speaker_id": "SPEAKER_00",
+      "role": "customer",
+      "text": "What happened?",
+      "start_ms": 1900,
+      "end_ms": 2600
+    },
+    {
+      "speaker_id": "SPEAKER_01",
+      "role": "caller",
+      "text": "There was a charge for $900. You need to act immediately.",
+      "start_ms": 2700,
+      "end_ms": 5200
+    },
+    {
+      "speaker_id": "SPEAKER_01",
+      "role": "caller",
+      "text": "Do not tell anyone and stay on the line while you move $2,000 to a secure account.",
+      "start_ms": 5300,
+      "end_ms": 9200
+    }
+  ],
+  "metadata": {
+    "source": "diarization-service",
+    "language": "en-US"
+  }
+}

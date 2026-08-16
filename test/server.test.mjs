@@ -17,7 +17,113 @@ test("health endpoint reports keyterm and secret configuration state", async (co
   context.after(() => server.close());
   const port = await listen(server);
   const response = await fetch(`http://127.0.0.1:${port}/api/health`);
-  assert.deepEqual(await response.json(), { ok: true, deepgram_configured: false, keyterm_count: 98 });
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    deepgram_configured: false,
+    post_transcript_configured: false,
+    keyterm_count: 98,
+  });
+});
+
+test("ingests a canonical transcript into the post-transcript API", async (context) => {
+  const upstreamRequests = [];
+  const postTranscriptFetch = async (url, options) => {
+    const request = {
+      url: new URL(url),
+      authorization: options.headers.Authorization,
+      body: JSON.parse(options.body),
+    };
+    upstreamRequests.push(request);
+    if (request.url.pathname === "/v1/conversations") {
+      return Response.json({ conversation_id: "call-1", status: "collecting", assessment: null }, { status: 201 });
+    }
+    const score = upstreamRequests.length === 2 ? 20 : 85;
+    return Response.json({
+      conversation_id: "call-1",
+      status: "assessed",
+      segment_id: request.body.segment_id,
+      duplicate_segment: false,
+      assessment: { risk: { score, level: score >= 80 ? "critical" : "low" } },
+    });
+  };
+  const { server } = await createAppServer({
+    apiKey: null,
+    postTranscriptUrl: "http://post-transcript.test:8000",
+    ingestApiKey: "ingest-secret",
+    postTranscriptFetch,
+  });
+  context.after(() => server.close());
+  const port = await listen(server);
+  const transcript = {
+    conversation_id: "call-1",
+    caller_speaker_id: "SPEAKER_01",
+    metadata: { source: "diarization-service" },
+    turns: [
+      {
+        speaker_id: "SPEAKER_01",
+        role: "caller",
+        text: "I'm calling from Chase fraud department.",
+        start_ms: 0,
+        end_ms: 1200,
+      },
+      {
+        speaker_id: "SPEAKER_01",
+        role: "caller",
+        text: "Move $2,000 immediately.",
+        start_ms: 1300,
+        end_ms: 2400,
+      },
+    ],
+  };
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/analyze-transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(transcript),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).assessment.risk.score, 85);
+  assert.equal(upstreamRequests.length, 3);
+  assert.deepEqual(upstreamRequests.map((request) => request.url.pathname), [
+    "/v1/conversations",
+    "/v1/conversations/call-1/turns",
+    "/v1/conversations/call-1/turns",
+  ]);
+  assert.ok(upstreamRequests.every((request) => request.authorization === "Bearer ingest-secret"));
+  assert.equal(upstreamRequests[1].body.segment_id, "final-0001");
+  assert.equal(upstreamRequests[2].body.segment_id, "final-0002");
+  assert.equal(upstreamRequests[2].body.is_final, true);
+});
+
+test("fails safely when post-transcript analysis is unconfigured or malformed", async (context) => {
+  const { server } = await createAppServer({ apiKey: null, postTranscriptUrl: null });
+  context.after(() => server.close());
+  const port = await listen(server);
+  const unconfigured = await fetch(`http://127.0.0.1:${port}/api/analyze-transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+
+  assert.equal(unconfigured.status, 503);
+  assert.equal((await unconfigured.json()).error, "Post-transcript pipeline is not configured");
+
+  const configured = await createAppServer({
+    apiKey: null,
+    postTranscriptUrl: "http://post-transcript.test:8000",
+    ingestApiKey: "ingest-secret",
+  });
+  context.after(() => configured.server.close());
+  const configuredPort = await listen(configured.server);
+  const malformed = await fetch(`http://127.0.0.1:${configuredPort}/api/analyze-transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: "call-1", caller_speaker_id: "SPEAKER_01", turns: [] }),
+  });
+
+  assert.equal(malformed.status, 400);
+  assert.match((await malformed.json()).error, /at least one turn/);
 });
 
 test("WebSocket fails safely when the API key is missing", async (context) => {

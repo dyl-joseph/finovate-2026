@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Full-call scam diarization</title>
+    <title>Full-call scam intelligence</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -11,8 +11,8 @@
       <header>
         <div>
           <p class="eyebrow">Finovate 2026 prototype</p>
-          <h1>Full-call scam diarization</h1>
-          <p class="lede">Capture the complete call, separate its speakers, assign call roles, and export the required transcript.</p>
+          <h1>Full-call scam intelligence</h1>
+          <p class="lede">Capture the call, separate its speakers, assign roles, and produce an explainable scam-risk assessment.</p>
         </div>
         <span id="status" class="status" data-state="idle">Idle</span>
       </header>
@@ -48,11 +48,21 @@
             <p id="output-help" class="hint">Finalized words and a caller assignment are required.</p>
           </div>
           <div class="button-row compact">
+            <button id="analyze" type="button" disabled>Analyze risk</button>
             <button id="copy" type="button" class="secondary" disabled>Copy JSON</button>
             <button id="download" type="button" class="secondary" disabled>Download JSON</button>
           </div>
         </div>
         <pre id="output">Waiting for finalized transcript data.</pre>
+      </section>
+      <section aria-labelledby="assessment-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="assessment-heading">Scam intelligence assessment</h2>
+            <p id="assessment-help" class="hint">Finalize the call and identify the caller first.</p>
+          </div>
+        </div>
+        <pre id="assessment">No assessment yet.</pre>
       </section>
     </main>
     <script type="module" src="/app.js"></script>

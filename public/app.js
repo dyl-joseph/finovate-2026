@@ -1,8 +1,9 @@
 import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
 
 const elements = Object.fromEntries([
-  "conversation-id", "copy", "download", "error", "interim", "output",
-  "output-help", "speakers", "start", "status", "stop", "turns",
+  "analyze", "assessment", "assessment-help", "conversation-id", "copy",
+  "download", "error", "interim", "output", "output-help", "speakers",
+  "start", "status", "stop", "turns",
 ].map((id) => [id.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), document.querySelector(`#${id}`)]));
 
 let assembler;
@@ -86,15 +87,49 @@ function renderFinalTranscript() {
   finalTranscript = undefined;
   elements.copy.disabled = true;
   elements.download.disabled = true;
+  elements.analyze.disabled = true;
+  elements.assessment.textContent = "No assessment yet.";
+  elements.assessmentHelp.textContent = "Finalize the call and identify the caller first.";
   try {
     finalTranscript = assembler.buildFinalTranscript();
     elements.output.textContent = JSON.stringify(finalTranscript, null, 2);
     elements.outputHelp.textContent = "Ready for the fraud pipeline.";
     elements.copy.disabled = false;
     elements.download.disabled = false;
+    elements.analyze.disabled = false;
   } catch (error) {
     elements.output.textContent = "Waiting for finalized transcript data.";
     elements.outputHelp.textContent = error.message;
+  }
+}
+
+async function analyzeTranscript() {
+  if (!finalTranscript) return;
+  clearError();
+  elements.analyze.disabled = true;
+  elements.assessmentHelp.textContent = "Running claims, financial, and risk analysis…";
+  setStatus("Analyzing risk");
+  try {
+    const response = await fetch("/api/analyze-transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(finalTranscript),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.detail ?? body.error ?? "Post-transcript analysis failed");
+    }
+    const assessment = body.assessment ?? body;
+    elements.assessment.textContent = JSON.stringify(assessment, null, 2);
+    const risk = assessment.risk;
+    elements.assessmentHelp.textContent = risk
+      ? `Risk: ${risk.level} (${risk.score}/100)`
+      : "Assessment complete.";
+    setStatus("Assessed");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    elements.analyze.disabled = !finalTranscript;
   }
 }
 
@@ -169,6 +204,8 @@ async function startSession() {
     assembler = new TranscriptAssembler({ conversationId: elements.conversationId.value.trim() });
     liveCaptionParts = [];
     elements.turns.replaceChildren();
+    elements.assessment.textContent = "No assessment yet.";
+    elements.assessmentHelp.textContent = "Finalize the call and identify the caller first.";
     elements.interim.textContent = "Waiting for speech…";
     renderSpeakers();
     renderFinalTranscript();
@@ -225,6 +262,7 @@ function stopSession() {
 
 elements.start.addEventListener("click", startSession);
 elements.stop.addEventListener("click", stopSession);
+elements.analyze.addEventListener("click", analyzeTranscript);
 elements.copy.addEventListener("click", async () => {
   if (!finalTranscript) return;
   await navigator.clipboard.writeText(JSON.stringify(finalTranscript, null, 2));
