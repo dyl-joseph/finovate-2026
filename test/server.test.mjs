@@ -96,6 +96,70 @@ test("ingests a canonical transcript into the post-transcript API", async (conte
   assert.equal(upstreamRequests[2].body.is_final, true);
 });
 
+test("streams only new finalized live turns and refreshes the Render assessment", async (context) => {
+  const upstreamRequests = [];
+  const postTranscriptFetch = async (url, options) => {
+    const request = {
+      url: new URL(url),
+      method: options.method,
+      body: options.body ? JSON.parse(options.body) : undefined,
+    };
+    upstreamRequests.push(request);
+    if (request.url.pathname === "/v1/conversations") {
+      return Response.json({ conversation_id: "call-1-live", status: "collecting", assessment: null }, { status: 201 });
+    }
+    if (request.url.pathname.endsWith("/analyze")) {
+      return Response.json({
+        conversation_id: "call-1-live", status: "assessed", assessment: { risk: { score: 20, level: "low" } },
+      });
+    }
+    return Response.json({
+      conversation_id: "call-1-live",
+      status: "assessed",
+      segment_id: request.body.segment_id,
+      duplicate_segment: false,
+      assessment: { risk: { score: 85, level: "critical" } },
+    });
+  };
+  const { server } = await createAppServer({
+    apiKey: null,
+    postTranscriptUrl: "http://post-transcript.test:8000",
+    ingestApiKey: "ingest-secret",
+    postTranscriptFetch,
+  });
+  context.after(() => server.close());
+  const port = await listen(server);
+  const liveRequest = {
+    conversation_id: "call-1-live",
+    caller_speaker_id: "SPEAKER_01",
+    turns: [{
+      segment_id: "live-00001",
+      speaker_id: "SPEAKER_01",
+      role: "caller",
+      text: "Move money immediately.",
+      start_ms: 0,
+      end_ms: 1200,
+    }],
+  };
+
+  const first = await fetch(`http://127.0.0.1:${port}/api/live-assessment`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(liveRequest),
+  });
+  const refresh = await fetch(`http://127.0.0.1:${port}/api/live-assessment`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...liveRequest, turns: [] }),
+  });
+
+  assert.equal((await first.json()).assessment.risk.level, "critical");
+  assert.equal((await refresh.json()).assessment.risk.level, "low");
+  assert.deepEqual(upstreamRequests.map((request) => request.url.pathname), [
+    "/v1/conversations",
+    "/v1/conversations/call-1-live/turns",
+    "/v1/conversations",
+    "/v1/conversations/call-1-live/analyze",
+  ]);
+  assert.equal(upstreamRequests.filter((request) => request.url.pathname.endsWith("/turns")).length, 1);
+});
+
 test("fails safely when post-transcript analysis is unconfigured or malformed", async (context) => {
   const { server } = await createAppServer({ apiKey: null, postTranscriptUrl: null });
   context.after(() => server.close());

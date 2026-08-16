@@ -1,7 +1,8 @@
 import { TranscriptAssembler } from "/src/transcript-assembler.mjs";
 
 const elements = Object.fromEntries([
-  "actions-panel", "active-view", "error", "ready-view", "recommendations",
+  "actions-panel", "active-view", "error", "live-assessment", "live-assessment-detail",
+  "live-assessment-label", "live-assessment-verdict", "ready-view", "recommendations",
   "restart", "result", "result-icon", "result-message", "result-title", "risk-label",
   "start", "state-detail", "state-symbol", "state-title", "stop", "timer",
   "warning-panel", "warning-signs",
@@ -16,6 +17,12 @@ let recordedMimeType;
 let isFinalizing = false;
 let timerId;
 let recordingStartedAt;
+let liveAssessmentTimerId;
+let pendingLiveTurns = [];
+let liveSegmentNumber = 0;
+let hasLiveAssessment = false;
+
+const LIVE_ASSESSMENT_INTERVAL_MS = 10_000;
 
 const RISK_CONTENT = {
   critical: {
@@ -62,6 +69,7 @@ function conversationId() {
 
 function showReady() {
   clearInterval(timerId);
+  clearInterval(liveAssessmentTimerId);
   elements.readyView.hidden = false;
   elements.activeView.hidden = true;
   elements.result.hidden = true;
@@ -156,6 +164,65 @@ function renderAssessment(assessment) {
   elements.result.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function resetLiveAssessment() {
+  clearInterval(liveAssessmentTimerId);
+  pendingLiveTurns = [];
+  liveSegmentNumber = 0;
+  hasLiveAssessment = false;
+  elements.liveAssessment.hidden = true;
+  elements.liveAssessment.dataset.risk = "";
+}
+
+function renderLiveAssessment(assessment) {
+  const risk = assessment.risk ?? { level: "low", score: 0 };
+  const content = RISK_CONTENT[risk.level] ?? RISK_CONTENT.guarded;
+  elements.liveAssessment.dataset.risk = risk.level;
+  elements.liveAssessmentLabel.textContent = `Current check · ${content.label}`;
+  elements.liveAssessmentVerdict.textContent = content.title;
+  elements.liveAssessmentDetail.textContent = `${content.message} Updated just now; we will check again in 10 seconds.`;
+  elements.liveAssessment.hidden = false;
+  hasLiveAssessment = true;
+}
+
+function prepareLiveTurns(events) {
+  if (!events.length) return;
+  assembler.assignSpeakerRolesAutomatically();
+  for (const event of events) {
+    pendingLiveTurns.push({
+      ...event.turn,
+      role: assembler.getSpeakerRole(event.turn.speaker_id),
+      segment_id: `live-${String(++liveSegmentNumber).padStart(5, "0")}`,
+    });
+  }
+}
+
+async function updateLiveAssessment() {
+  if (isFinalizing || !assembler || (!hasLiveAssessment && pendingLiveTurns.length === 0)) return;
+  const turns = pendingLiveTurns;
+  pendingLiveTurns = [];
+  try {
+    const response = await fetch("/api/live-assessment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: `${assembler.conversationId}-live`,
+        caller_speaker_id: assembler.callerSpeakerId,
+        metadata: { source: "live-transcription" },
+        turns,
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail ?? body.error ?? "Live assessment failed");
+    if (body.assessment) renderLiveAssessment(body.assessment);
+  } catch {
+    pendingLiveTurns = [...turns, ...pendingLiveTurns];
+    elements.liveAssessment.hidden = false;
+    elements.liveAssessmentLabel.textContent = "Current call check";
+    elements.liveAssessmentVerdict.textContent = "Still listening to the call";
+    elements.liveAssessmentDetail.textContent = "We could not refresh the safety check yet. Keep listening and do not share money or security codes.";
+  }
+}
+
 async function analyzeTranscript(finalTranscript) {
   showActive("Checking for scam warning signs…", "This usually takes only a few seconds.", "processing");
   const response = await fetch("/api/analyze-transcript", {
@@ -178,6 +245,7 @@ function cleanupMedia() {
 async function finalizeRecordedCall() {
   isFinalizing = true;
   clearInterval(timerId);
+  clearInterval(liveAssessmentTimerId);
   cleanupMedia();
   showActive("Preparing your safety check…", "We are separating the voices and reviewing the call.", "processing");
   elements.timer.textContent = "";
@@ -229,6 +297,7 @@ function startRecording() {
   recordingStartedAt = Date.now();
   updateTimer();
   timerId = setInterval(updateTimer, 1000);
+  liveAssessmentTimerId = setInterval(() => { void updateLiveAssessment(); }, LIVE_ASSESSMENT_INTERVAL_MS);
   showActive("Listening to the call…", "Keep the phone on speaker and near this device.", "listening");
   elements.stop.disabled = false;
 }
@@ -237,6 +306,7 @@ async function startSession() {
   clearError();
   try {
     assembler = new TranscriptAssembler({ conversationId: conversationId() });
+    resetLiveAssessment();
     elements.start.disabled = true;
     showActive("Getting ready…", "Checking that CallCheck is available.", "processing");
     elements.stop.disabled = true;
@@ -257,8 +327,7 @@ async function startSession() {
       if (message.type === "ready") {
         startRecording();
       } else if (message.type === "Results") {
-        // Live results keep the Deepgram stream active. The complete recording is
-        // analyzed after the user ends the call so speaker separation is consistent.
+        prepareLiveTurns(assembler.ingestDeepgramResult(message));
       } else if (message.type === "configuration_error" || message.type === "proxy_error") {
         showError(message.message);
       } else if (message.type === "stream_closed") {
