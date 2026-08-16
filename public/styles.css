@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Nunito:wght@400;600;700;800;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Nunito:wght@400;600;700;800;900&family=PT+Sans:wght@400;700&display=swap");
 
 :root { color-scheme: light; font-family: Nunito, ui-rounded, system-ui, sans-serif; background: #f5f5f5; color: #163a3a; font-size: 16px; }
 * { box-sizing: border-box; }
@@ -17,7 +17,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #0798c7; outline-offs
 main { width: min(1100px, calc(100% - 40px)); min-height: calc(100svh - clamp(62px, 10vh, 82px)); margin: 0 auto; padding: 0 0 20px; display: grid; grid-template-columns: minmax(260px, .78fr) minmax(430px, 1.22fr); align-items: center; gap: clamp(24px, 6vw, 88px); }
 .intro { margin: 0; }
 h1, h2, h3, p { margin-top: 0; }
-h1 { max-width: 530px; margin-bottom: 16px; color: #155758; font-family: "Abril Fatface", Georgia, serif; font-size: clamp(3.3rem, 7vw, 6.3rem); font-weight: 400; line-height: .91; letter-spacing: -.04em; }
+h1 { max-width: 530px; margin-bottom: 16px; color: #155758; font-family: "PT Sans", Arial, sans-serif; font-size: clamp(3.3rem, 7vw, 6.3rem); font-weight: 700; line-height: .91; letter-spacing: -.04em; }
 h2 { margin-bottom: 18px; font-size: clamp(1.22rem, 2.3vw, 1.55rem); line-height: 1.15; }
 h3 { margin-bottom: 12px; font-size: 1rem; }
 .eyebrow { margin-bottom: 12px; color: #0798c7; font-size: .72rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
